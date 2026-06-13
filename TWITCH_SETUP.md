@@ -33,6 +33,17 @@ Firebase is a free Google service that stores the game state in real time — th
 2. Click **Add project** → give it any name (e.g. `my-jeopardy`) → click through the setup wizard
 3. Once the project is created, click **Realtime Database** in the left sidebar
 4. Click **Create Database** → choose any region → start in **Test mode** → **Enable**
+
+   > ⚠️ **Important:** Test mode expires after 30 days, after which Firebase will lock your database and the game will stop working. Before day 30, go to **Realtime Database → Rules** in your Firebase console and replace the contents with:
+   > ```json
+   > {
+   >   "rules": {
+   >     ".read": true,
+   >     ".write": true
+   >   }
+   > }
+   > ```
+   > Then click **Publish**. This keeps the database open permanently. The host dashboard password (set below) is your protection against unauthorized access.
 5. You will see a URL at the top of the database page that looks like:
    `https://my-jeopardy-default-rtdb.firebaseio.com/`
    
@@ -69,7 +80,7 @@ Now you need to put your own values into the two game files. You can do this dir
 
 In your forked repo at `https://github.com/YOUR-GITHUB-USERNAME/jeopardy`, open **`host_dashboard.html`** and click the pencil (edit) icon.
 
-Find these 4 lines near the top of the `<script>` section and replace them with your own values:
+Find these **3 lines** near the top of the `<script>` section and replace them with your own values:
 
 ```js
 const CLIENT_ID    = 'oetfyj917dbuh00b4ohrfimxv5ok6s';         // ← your Twitch Client ID from Step 3
@@ -111,7 +122,8 @@ https://YOUR-GITHUB-USERNAME.github.io/jeopardy/jeopardy_preview.html
 
 Recommended OBS Browser Source settings:
 - Width: `1920`, Height: `1080`
-- Check **Shutdown source when not visible**
+- Check **Refresh browser when scene becomes active**
+- Leave **Shutdown source when not visible** unchecked — the overlay needs to stay connected to Firebase to receive updates
 
 ---
 
