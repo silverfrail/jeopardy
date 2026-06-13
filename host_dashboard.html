@@ -799,7 +799,8 @@ function resetGame() {
 
 function triggerOBSRefresh() {
     db.ref('refreshTrigger').set(Date.now());
-    log('OBS refresh triggered.');
+    window.open('https://silverfrail.github.io/jeopardy/jeopardy_preview.html', '_blank');
+    log('OBS refresh triggered & preview opened.');
 }
 </script>
 </body>
