@@ -343,6 +343,7 @@ async function handleOAuthCallback() {
         })
     });
     const data = await res.json();
+    console.log('[Twitch Token Response]', JSON.stringify(data));
     if (!data.access_token) { alert('Twitch auth failed: ' + (data.message || 'unknown error')); return; }
 
     localStorage.setItem('twitch_token',         data.access_token);
