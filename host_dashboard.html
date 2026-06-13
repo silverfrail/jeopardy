@@ -160,7 +160,13 @@
         <!-- Main Column -->
         <div class="main">
 
-            <!-- Active Clue Panel -->
+            <!-- Live Board -->
+            <div class="panel">
+                <div class="ptitle">Live Board</div>
+                <div id="board-wrap"></div>
+            </div>
+
+            <!-- Active Clue Panel (below board so grid doesn't shift on dismiss) -->
             <div id="ac-panel">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
                     <div>
@@ -183,12 +189,6 @@
                         <button class="btn-red" style="flex:1" onclick="judgeGuess(false)">✗ Wrong</button>
                     </div>
                 </div>
-            </div>
-
-            <!-- Live Board -->
-            <div class="panel">
-                <div class="ptitle">Live Board</div>
-                <div id="board-wrap"></div>
             </div>
 
         </div>
