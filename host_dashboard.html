@@ -312,6 +312,7 @@ function initDashboard() {
     document.getElementById('fb-dot').classList.add('on');
     log('Dashboard initialized.');
     initListeners();
+    initTMI();  // always listen to chat, regardless of OAuth state
     oauthReady.then(() => checkTwitchSession());
 }
 
@@ -389,7 +390,7 @@ async function setupTwitch(loginName) {
     document.getElementById('tw-user').innerText = loginName || 'Host';
     document.getElementById('tw-chan').innerText = BROADCASTER;
     document.getElementById('tw-dot').classList.add('on');
-    initTMI();
+    // initTMI is already running from initDashboard — no need to restart it
     log(`Twitch session active. Connecting to chat…`);
 }
 
@@ -405,7 +406,7 @@ function updateFollowersOnly() {
 }
 
 function disconnectTwitch() {
-    if (tmiClient) { tmiClient.close(); tmiClient = null; }
+    // Only clear OAuth state — keep IRC WebSocket alive so chat still works without follower checks
     clearTwitchSession();
     const cb = document.getElementById('followers-only');
     if (cb) cb.checked = false;
