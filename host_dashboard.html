@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jeopardy Host Dashboard</title>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+    <script src="https://unpkg.com/tmi.js@1.8.5/dist/tmi.min.js"></script>
+    <style>
+        :root {
+            --green:  #5CFF5C;
+            --blue:   #3a7bff;
+            --bg:     #0c0c14;
+            --panel:  #16162a;
+            --border: #2a2a44;
+            --text:   #ffffff;
+            --dim:    rgba(255,255,255,0.55);
+            --red:    #ff4444;
+            --yellow: #ffb86c;
+            --ok:     #2ea44f;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; height: 100vh; overflow: hidden; }
+
+        /* ── Auth Overlay ── */
+        #auth-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+        .auth-box { background: var(--panel); border: 2px solid var(--blue); border-radius: 12px; padding: 40px; width: 320px; text-align: center; }
+        .auth-box h2 { color: var(--green); margin-bottom: 20px; }
+        .auth-box input { width: 100%; padding: 10px; background: #000; border: 1px solid var(--border); color: var(--text); border-radius: 4px; margin-bottom: 10px; font-family: inherit; font-size: 0.9rem; }
+        .auth-err { color: var(--red); font-size: 0.8rem; min-height: 1.2em; margin-top: 6px; }
+
+        /* ── Layout ── */
+        #ui { display: none; flex-direction: column; height: 100vh; padding: 12px; gap: 12px; }
+        .hdr { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+        .hdr h1 { font-size: 1.2rem; color: var(--green); flex: 1; }
+        .body { display: grid; grid-template-columns: 1fr 350px; gap: 12px; flex: 1; min-height: 0; overflow: hidden; }
+        .main { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+        .sidebar { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+
+        /* ── Panels ── */
+        .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; flex-shrink: 0; }
+        .ptitle { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+
+        /* ── Status ── */
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; display: inline-block; margin-right: 5px; transition: background 0.3s; }
+        .dot.on { background: var(--green); }
+        .stat-label { font-size: 0.75rem; color: var(--dim); }
+
+        /* ── Active Clue Panel ── */
+        #ac-panel { display: none; background: #0d0d20; border: 2px solid var(--blue); border-radius: 8px; padding: 14px; flex-shrink: 0; }
+        .ac-cat  { color: var(--blue); font-size: 0.8rem; font-weight: 700; text-transform: uppercase; }
+        .ac-val  { color: var(--green); font-size: 1.5rem; font-weight: 900; }
+        .ac-q    { color: #ffff5c; font-size: 0.95rem; margin: 8px 0; line-height: 1.5; }
+        .ac-albl { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; margin-top: 8px; }
+        .ac-ans  { color: var(--green); font-size: 1.1rem; font-weight: 700; }
+
+        /* ── Pending Guess ── */
+        #pg-panel { display: none; background: #1a1500; border: 2px solid var(--yellow); border-radius: 6px; padding: 12px; margin-top: 12px; }
+        .pg-who  { font-size: 0.75rem; font-weight: 700; color: var(--yellow); text-transform: uppercase; letter-spacing: 0.05em; }
+        .pg-txt  { font-size: 1.2rem; font-weight: 700; margin: 5px 0; }
+        .pg-mtch { font-size: 0.75rem; display: inline-block; padding: 2px 8px; border-radius: 4px; margin-bottom: 10px; }
+        .pg-mtch.hi  { background: rgba(92,255,92,0.15);   color: var(--green);  }
+        .pg-mtch.mid { background: rgba(255,184,108,0.15);  color: var(--yellow); }
+        .pg-mtch.lo  { background: rgba(255,68,68,0.15);    color: var(--red);   }
+        .pg-acts { display: flex; gap: 8px; }
+
+        /* ── Board ── */
+        #board-wrap { display: grid; gap: 5px; margin-top: 4px; }
+        .bc { background: #090911; border: 1px solid var(--blue); padding: 7px 4px; text-align: center; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; border-radius: 3px; word-break: break-word; line-height: 1.3; }
+        .bt { background: #090911; border: 1px solid var(--border); padding: 8px; text-align: center; cursor: pointer; color: var(--green); font-weight: 700; border-radius: 3px; font-size: 0.85rem; transition: border-color 0.15s; }
+        .bt:hover  { border-color: var(--blue); }
+        .bt.played { opacity: 0.12; pointer-events: none; }
+        .bt.active { border-color: #ffff5c; box-shadow: 0 0 6px rgba(255,255,92,0.35); }
+
+        /* ── Players / Roster ── */
+        .p-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+        .p-item:last-child { border-bottom: none; }
+        .p-score { color: var(--green); font-weight: 700; }
+        .p-adj { display: flex; gap: 4px; }
+
+        /* ── Buttons ── */
+        button { background: var(--blue); color: #fff; border: none; padding: 8px 14px; font-weight: 700; border-radius: 4px; cursor: pointer; font-size: 0.82rem; }
+        button:hover { filter: brightness(1.15); }
+        .btn-ok  { background: var(--ok);  }
+        .btn-red { background: var(--red); }
+        .btn-sec { background: #383858; }
+        .btn-sm  { padding: 4px 8px; font-size: 0.72rem; }
+
+        /* ── Inputs ── */
+        input[type=text], input[type=password], input[type=number], textarea, select {
+            background: #000; border: 1px solid var(--border); color: var(--text);
+            padding: 7px 9px; border-radius: 4px; font-family: inherit; font-size: 0.85rem;
+        }
+        input:focus, textarea:focus { outline: none; border-color: var(--blue); }
+        textarea { width: 100%; resize: vertical; }
+        .row { display: flex; gap: 8px; }
+        .row > * { flex: 1; }
+
+        /* ── Toggle ── */
+        .toggle-row { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; }
+        input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--blue); }
+
+        /* ── Log ── */
+        #syslog { font-size: 0.72rem; color: var(--yellow); font-style: italic; text-align: right; min-height: 1em; padding: 2px 0; flex-shrink: 0; }
+
+        /* ── Modal ── */
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 10000; align-items: center; justify-content: center; }
+        .modal.open { display: flex; }
+        .mbox { background: var(--panel); border: 1px solid var(--blue); border-radius: 8px; padding: 24px; width: 420px; }
+        .mbox h3 { margin-bottom: 16px; }
+        .mbox input { width: 100%; margin-bottom: 10px; }
+        .mrow { display: flex; gap: 8px; margin-top: 14px; }
+        .mrow > button { flex: 1; }
+    </style>
+</head>
+<body>
+
+<!-- ── Auth Overlay ── -->
+<div id="auth-overlay">
+    <div class="auth-box">
+        <h2>Host Dashboard</h2>
+        <input type="password" id="pass-in" placeholder="Password..." onkeydown="if(event.key==='Enter')unlock()">
+        <button onclick="unlock()" style="width:100%;padding:10px;">Unlock</button>
+        <div class="auth-err" id="auth-err"></div>
+    </div>
+</div>
+
+<!-- ── AI Prompt Modal ── -->
+<div class="modal" id="prompt-modal">
+    <div class="mbox">
+        <h3>Generate AI Prompt</h3>
+        <input type="text"   id="m-topic" placeholder="Topic (e.g. 90s Music)">
+        <input type="number" id="m-cats"  placeholder="Number of categories" value="5">
+        <input type="number" id="m-ques"  placeholder="Questions per category" value="5">
+        <div class="mrow">
+            <button class="btn-sec" onclick="closeModal('prompt-modal')">Cancel</button>
+            <button class="btn-ok"  onclick="generatePrompt()">Copy Prompt</button>
+        </div>
+    </div>
+</div>
+
+<input type="file" id="file-in" style="display:none" accept=".json" onchange="importFile(this.files)">
+
+<!-- ── Main UI ── -->
+<div id="ui">
+
+    <!-- Header -->
+    <div class="hdr">
+        <h1>Jeopardy! Host</h1>
+        <span><span class="dot" id="fb-dot"></span><span class="stat-label">Firebase</span></span>
+        <span><span class="dot" id="tw-dot"></span><span class="stat-label">Twitch</span></span>
+        <button class="btn-sec btn-sm" onclick="triggerOBSRefresh()">⚡ OBS</button>
+        <button class="btn-red btn-sm" onclick="resetGame()">♻️ Reset</button>
+    </div>
+
+    <!-- Body -->
+    <div class="body">
+
+        <!-- Main Column -->
+        <div class="main">
+
+            <!-- Active Clue Panel -->
+            <div id="ac-panel">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+                    <div>
+                        <div class="ac-cat" id="ac-cat"></div>
+                        <div class="ac-val" id="ac-val"></div>
+                    </div>
+                    <button class="btn-sec btn-sm" onclick="dismissClue()">Dismiss Clue</button>
+                </div>
+                <div class="ac-q"   id="ac-q"></div>
+                <div class="ac-albl">Correct Answer</div>
+                <div class="ac-ans" id="ac-ans"></div>
+
+                <!-- Pending Guess -->
+                <div id="pg-panel">
+                    <div class="pg-who" id="pg-who"></div>
+                    <div class="pg-txt" id="pg-txt"></div>
+                    <div class="pg-mtch" id="pg-mtch"></div>
+                    <div class="pg-acts">
+                        <button class="btn-ok"  style="flex:1" onclick="judgeGuess(true)">✓ Correct</button>
+                        <button class="btn-red" style="flex:1" onclick="judgeGuess(false)">✗ Wrong</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Board -->
+            <div class="panel">
+                <div class="ptitle">Live Board</div>
+                <div id="board-wrap"></div>
+            </div>
+
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+
+            <!-- Twitch -->
+            <div class="panel">
+                <div class="ptitle">Twitch</div>
+                <div id="tw-connect">
+                    <button onclick="startTwitchAuth()" style="width:100%">Connect Twitch Account</button>
+                    <div style="font-size:0.75rem;color:var(--dim);margin-top:8px;">Required for follower verification.</div>
+                </div>
+                <div id="tw-connected" style="display:none">
+                    <div style="font-size:0.82rem;color:var(--green);margin-bottom:6px;">● Connected as <strong id="tw-user"></strong></div>
+                    <div style="font-size:0.78rem;color:var(--dim);">Channel: <strong id="tw-chan"></strong></div>
+                    <div style="font-size:0.78rem;color:var(--dim);margin-top:3px;">Approved this session: <strong id="appr-count">0</strong></div>
+                    <div class="toggle-row" style="margin-top:10px;">
+                        <input type="checkbox" id="followers-only" checked>
+                        <label for="followers-only" style="color:var(--dim)">Followers only</label>
+                    </div>
+                    <button class="btn-sec btn-sm" style="margin-top:8px" onclick="disconnectTwitch()">Disconnect</button>
+                </div>
+            </div>
+
+            <!-- Scoreboard -->
+            <div class="panel">
+                <div class="ptitle">Scoreboard</div>
+                <div id="roster"><div style="color:var(--dim);font-size:0.82rem;">No players yet.</div></div>
+            </div>
+
+            <!-- Game Management -->
+            <div class="panel">
+                <div class="ptitle">Game Management
+                    <div style="display:flex;gap:5px;">
+                        <button class="btn-sec btn-sm" onclick="document.getElementById('file-in').click()">Import</button>
+                        <button class="btn-sec btn-sm" onclick="exportFile()">Export</button>
+                    </div>
+                </div>
+                <textarea id="json-in" rows="7" placeholder="Paste AI-generated JSON here..."></textarea>
+                <div class="row" style="margin-top:8px;">
+                    <button class="btn-sec" onclick="openModal('prompt-modal')">Gen Prompt</button>
+                    <button class="btn-ok"  onclick="uploadBoard()">Upload Board</button>
+                </div>
+            </div>
+
+            <div id="syslog"></div>
+
+        </div>
+    </div>
+</div>
+
+<script>
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const CLIENT_ID    = 'oetfyj917dbuh00b4ohrfimxv5ok6s';
+const REDIRECT_URI = 'https://silverfrail.github.io/jeopardy/host_dashboard.html';
+const BROADCASTER  = 'silverfrailttv';
+const SCOPES       = 'moderator:read:followers';
+
+// ── FIREBASE ──────────────────────────────────────────────────────────────────
+const db = firebase.initializeApp({
+    databaseURL: 'https://jeopardy-stream-default-rtdb.firebaseio.com'
+}).database();
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let twitchToken   = localStorage.getItem('twitch_token');
+let broadcasterId = localStorage.getItem('broadcaster_id');
+let tmiClient     = null;
+let boardData     = null;
+let activeClue    = null;
+let pendingGuess  = null;       // { username, text }
+let wrongGuessers = new Set();  // usernames who guessed wrong on current clue
+let followerCache = new Map();  // username.toLowerCase() → boolean
+let approvedCnt   = 0;
+
+// Kick off OAuth callback handling immediately; store the promise so unlock() can await it
+const oauthReady = handleOAuthCallback();
+
+// ── UTILS ─────────────────────────────────────────────────────────────────────
+function log(msg) {
+    document.getElementById('syslog').innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+}
+function openModal(id)  { document.getElementById(id).classList.add('open');    }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ── FIREBASE AUTH ─────────────────────────────────────────────────────────────
+function unlock() {
+    const key = document.getElementById('pass-in').value;
+    db.ref('authValidation/secretKey').once('value').then(snap => {
+        if (snap.val() === key) {
+            document.getElementById('auth-overlay').style.display = 'none';
+            document.getElementById('ui').style.display = 'flex';
+            document.getElementById('fb-dot').classList.add('on');
+            log('Dashboard initialized.');
+            initListeners();
+            oauthReady.then(() => checkTwitchSession());
+        } else {
+            document.getElementById('auth-err').innerText = 'Incorrect password.';
+        }
+    });
+}
+document.getElementById('pass-in').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+
+// ── PKCE HELPERS ──────────────────────────────────────────────────────────────
+function randomStr(len) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+    const buf   = new Uint8Array(len);
+    crypto.getRandomValues(buf);
+    return Array.from(buf, b => chars[b % chars.length]).join('');
+}
+async function sha256(plain) {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(plain));
+    return btoa(String.fromCharCode(...new Uint8Array(digest)))
+        .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+// ── TWITCH OAUTH ──────────────────────────────────────────────────────────────
+async function startTwitchAuth() {
+    const verifier  = randomStr(64);
+    const challenge = await sha256(verifier);
+    const state     = randomStr(16);
+    localStorage.setItem('pkce_verifier', verifier);
+    localStorage.setItem('oauth_state',   state);
+    const p = new URLSearchParams({
+        client_id: CLIENT_ID, redirect_uri: REDIRECT_URI,
+        response_type: 'code', scope: SCOPES,
+        code_challenge: challenge, code_challenge_method: 'S256', state
+    });
+    window.location.href = `https://id.twitch.tv/oauth2/authorize?${p}`;
+}
+
+async function handleOAuthCallback() {
+    const params        = new URLSearchParams(window.location.search);
+    const code          = params.get('code');
+    const returnedState = params.get('state');
+    if (!code) return;
+
+    if (returnedState !== localStorage.getItem('oauth_state')) {
+        alert('OAuth state mismatch — possible CSRF attempt. Please try connecting again.');
+        window.history.replaceState({}, '', window.location.pathname);
+        return;
+    }
+
+    const res = await fetch('https://id.twitch.tv/oauth2/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            client_id: CLIENT_ID, grant_type: 'authorization_code',
+            code, redirect_uri: REDIRECT_URI,
+            code_verifier: localStorage.getItem('pkce_verifier')
+        })
+    });
+    const data = await res.json();
+    if (!data.access_token) { alert('Twitch auth failed: ' + (data.message || 'unknown error')); return; }
+
+    localStorage.setItem('twitch_token',         data.access_token);
+    localStorage.setItem('twitch_refresh_token', data.refresh_token || '');
+    localStorage.setItem('pkce_verifier', '');
+    localStorage.setItem('oauth_state',   '');
+    twitchToken = data.access_token;
+    window.history.replaceState({}, '', window.location.pathname);
+}
+
+async function refreshTwitchToken() {
+    const rt = localStorage.getItem('twitch_refresh_token');
+    if (!rt) return false;
+    const res = await fetch('https://id.twitch.tv/oauth2/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ client_id: CLIENT_ID, grant_type: 'refresh_token', refresh_token: rt })
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    localStorage.setItem('twitch_token',         data.access_token);
+    localStorage.setItem('twitch_refresh_token', data.refresh_token || '');
+    twitchToken = data.access_token;
+    return true;
+}
+
+async function checkTwitchSession() {
+    if (!twitchToken) return;
+    let res = await fetch('https://id.twitch.tv/oauth2/validate', {
+        headers: { 'Authorization': `OAuth ${twitchToken}` }
+    });
+    if (res.status === 401) {
+        const ok = await refreshTwitchToken();
+        if (!ok) { clearTwitchSession(); return; }
+        res = await fetch('https://id.twitch.tv/oauth2/validate', {
+            headers: { 'Authorization': `OAuth ${twitchToken}` }
+        });
+    }
+    if (!res.ok) { clearTwitchSession(); return; }
+    const data = await res.json();
+    await setupTwitch(data.login);
+}
+
+async function setupTwitch(loginName) {
+    if (!broadcasterId) {
+        const res  = await fetch(`https://api.twitch.tv/helix/users?login=${BROADCASTER}`, {
+            headers: { 'Authorization': `Bearer ${twitchToken}`, 'Client-Id': CLIENT_ID }
+        });
+        const data = await res.json();
+        broadcasterId = data.data?.[0]?.id;
+        if (broadcasterId) localStorage.setItem('broadcaster_id', broadcasterId);
+    }
+    document.getElementById('tw-connect').style.display   = 'none';
+    document.getElementById('tw-connected').style.display = '';
+    document.getElementById('tw-user').innerText = loginName || 'Host';
+    document.getElementById('tw-chan').innerText = BROADCASTER;
+    document.getElementById('tw-dot').classList.add('on');
+    initTMI();
+    log(`Twitch connected. Listening on #${BROADCASTER}`);
+}
+
+function clearTwitchSession() {
+    ['twitch_token', 'twitch_refresh_token', 'broadcaster_id'].forEach(k => localStorage.removeItem(k));
+    twitchToken = null; broadcasterId = null;
+}
+
+function disconnectTwitch() {
+    if (tmiClient) { tmiClient.disconnect(); tmiClient = null; }
+    clearTwitchSession();
+    document.getElementById('tw-connect').style.display   = '';
+    document.getElementById('tw-connected').style.display = 'none';
+    document.getElementById('tw-dot').classList.remove('on');
+    log('Twitch disconnected.');
+}
+
+// ── TMI / CHAT ────────────────────────────────────────────────────────────────
+function initTMI() {
+    if (tmiClient) tmiClient.disconnect();
+    tmiClient = new tmi.Client({ channels: [BROADCASTER] });
+    tmiClient.connect();
+    tmiClient.on('message', onChat);
+}
+
+async function onChat(channel, tags, message) {
+    const msg = message.trim();
+    if (!msg.toLowerCase().startsWith('!guess')) return;
+
+    const guessText = msg.slice(6).trim();
+    if (!guessText) return;
+    if (!activeClue || activeClue.status !== 'active') return;
+    if (pendingGuess) return;
+
+    const username = tags['display-name'] || tags['username'];
+    if (wrongGuessers.has(username.toLowerCase())) return;
+
+    const followersOnly = document.getElementById('followers-only')?.checked ?? true;
+    if (followersOnly) {
+        const allowed = await isFollower(tags['user-id'], username);
+        if (!allowed) { log(`${username} guessed — not a follower, ignored.`); return; }
+    }
+
+    pendingGuess = { username, text: guessText };
+    showPending(pendingGuess);
+    log(`Guess locked: ${username} → "${guessText}"`);
+}
+
+// ── FOLLOWER CHECK ────────────────────────────────────────────────────────────
+async function isFollower(userId, username) {
+    const key = username.toLowerCase();
+    if (followerCache.has(key)) return followerCache.get(key);
+    if (!broadcasterId || !twitchToken) return false;
+    try {
+        let res = await fetch(
+            `https://api.twitch.tv/helix/channels/followers?broadcaster_id=${broadcasterId}&user_id=${userId}`,
+            { headers: { 'Authorization': `Bearer ${twitchToken}`, 'Client-Id': CLIENT_ID } }
+        );
+        if (res.status === 401) {
+            const ok = await refreshTwitchToken();
+            if (!ok) return false;
+            res = await fetch(
+                `https://api.twitch.tv/helix/channels/followers?broadcaster_id=${broadcasterId}&user_id=${userId}`,
+                { headers: { 'Authorization': `Bearer ${twitchToken}`, 'Client-Id': CLIENT_ID } }
+            );
+        }
+        const data   = await res.json();
+        const result = (data.total || 0) > 0;
+        followerCache.set(key, result);
+        if (result) {
+            approvedCnt++;
+            document.getElementById('appr-count').innerText = approvedCnt;
+        }
+        return result;
+    } catch { return false; }
+}
+
+// ── FUZZY MATCH ───────────────────────────────────────────────────────────────
+function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    const d = Array.from({ length: m + 1 }, (_, i) => Array.from({ length: n + 1 }, (_, j) => i || j));
+    for (let i = 1; i <= m; i++)
+        for (let j = 1; j <= n; j++)
+            d[i][j] = a[i-1] === b[j-1] ? d[i-1][j-1] : 1 + Math.min(d[i-1][j], d[i][j-1], d[i-1][j-1]);
+    return d[m][n];
+}
+function matchScore(guess, answer) {
+    const g = guess.toLowerCase().replace(/\s+/g, ' ').trim();
+    const a = answer.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (g === a) return 1;
+    return 1 - levenshtein(g, a) / Math.max(g.length, a.length, 1);
+}
+
+// ── CLUE UI ───────────────────────────────────────────────────────────────────
+function setClueUI(clue) {
+    if (!clue || clue.status !== 'active') {
+        document.getElementById('ac-panel').style.display = 'none';
+        return;
+    }
+    document.getElementById('ac-cat').innerText = clue.category || '';
+    document.getElementById('ac-val').innerText = `$${clue.value}`;
+    document.getElementById('ac-q').innerText   = clue.question || '';
+    document.getElementById('ac-ans').innerText = clue.answer   || '—';
+    document.getElementById('ac-panel').style.display = '';
+}
+
+function showPending({ username, text }) {
+    const ans   = activeClue?.answer || '';
+    const score = matchScore(text, ans);
+    const pct   = Math.round(score * 100);
+    const cls   = score >= 0.75 ? 'hi' : score >= 0.45 ? 'mid' : 'lo';
+    const lbl   = score >= 0.75 ? 'Likely correct' : score >= 0.45 ? 'Possible match' : 'Low similarity';
+
+    document.getElementById('pg-who').innerText = username;
+    document.getElementById('pg-txt').innerText = `"${text}"`;
+    const m = document.getElementById('pg-mtch');
+    m.innerText   = `${pct}% — ${lbl}`;
+    m.className   = `pg-mtch ${cls}`;
+    document.getElementById('pg-panel').style.display = '';
+}
+
+function judgeGuess(correct) {
+    if (!pendingGuess || !activeClue) return;
+    if (correct) {
+        adjustScore(pendingGuess.username, activeClue.value);
+        log(`✓ ${pendingGuess.username} correct! +$${activeClue.value}`);
+        dismissClue();
+    } else {
+        wrongGuessers.add(pendingGuess.username.toLowerCase());
+        log(`✗ ${pendingGuess.username} wrong. Clue still open.`);
+        pendingGuess = null;
+        document.getElementById('pg-panel').style.display = 'none';
+    }
+}
+
+function dismissClue() {
+    db.ref('activeClue').set({ status: 'inactive', tileId: null });
+    pendingGuess  = null;
+    wrongGuessers = new Set();
+    document.getElementById('pg-panel').style.display = 'none';
+    log('Clue dismissed.');
+}
+
+// ── SCORE ─────────────────────────────────────────────────────────────────────
+function adjustScore(name, amount) {
+    db.ref(`leaderboard/${name}`).transaction(cur => (cur || 0) + amount);
+}
+
+// ── BOARD ─────────────────────────────────────────────────────────────────────
+function renderBoard() {
+    if (!boardData?.tiles) return;
+    const { categories, tiles } = boardData;
+    const numCats  = categories.length;
+    const numRows  = tiles.length / numCats;
+    const activeId = activeClue?.status === 'active' ? activeClue.tileId : null;
+    const wrap     = document.getElementById('board-wrap');
+
+    wrap.style.gridTemplateColumns = `repeat(${numCats}, 1fr)`;
+    wrap.innerHTML = '';
+
+    // Category headers
+    categories.forEach(cat => {
+        const d = document.createElement('div');
+        d.className = 'bc';
+        d.innerText = cat;
+        wrap.appendChild(d);
+    });
+
+    // Tiles — stored column-major, displayed row-major
+    for (let row = 0; row < numRows; row++) {
+        for (let col = 0; col < numCats; col++) {
+            const origIdx = col * numRows + row;
+            const tile    = tiles[origIdx];
+            const d       = document.createElement('div');
+            d.className   = 'bt' + (tile.played ? ' played' : '') + (tile.id === activeId ? ' active' : '');
+            d.innerText   = `$${tile.value}`;
+            if (!tile.played) {
+                d.onclick = () => {
+                    db.ref(`boardState/tiles/${origIdx}/played`).set(true);
+                    db.ref('activeClue').set({
+                        status: 'active', tileId: tile.id,
+                        value: tile.value, category: tile.category, question: tile.question
+                    });
+                };
+            }
+            wrap.appendChild(d);
+        }
+    }
+}
+
+// ── FIREBASE LISTENERS ────────────────────────────────────────────────────────
+function initListeners() {
+    db.ref('boardState').on('value', snap => {
+        boardData = snap.val();
+        // Re-attach answer to activeClue if board loads after clue was set
+        if (activeClue?.status === 'active' && boardData?.tiles) {
+            const t = boardData.tiles.find(t => t.id === activeClue.tileId);
+            if (t && !activeClue.answer) { activeClue.answer = t.answer || ''; setClueUI(activeClue); }
+        }
+        renderBoard();
+    });
+
+    db.ref('activeClue').on('value', snap => {
+        const data = snap.val();
+        if (data?.status === 'active' && boardData?.tiles) {
+            const t    = boardData.tiles.find(t => t.id === data.tileId);
+            activeClue = { ...data, answer: t?.answer || '' };
+        } else {
+            activeClue = data;
+        }
+        if (!data || data.status !== 'active') {
+            pendingGuess  = null;
+            wrongGuessers = new Set();
+            document.getElementById('pg-panel').style.display = 'none';
+        }
+        setClueUI(activeClue);
+        renderBoard();
+    });
+
+    db.ref('leaderboard').on('value', snap => {
+        const scores = snap.val() || {};
+        const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+        const roster = document.getElementById('roster');
+        roster.innerHTML = '';
+
+        if (!sorted.length) {
+            roster.innerHTML = '<div style="color:var(--dim);font-size:0.82rem;">No players yet.</div>';
+            return;
+        }
+
+        sorted.forEach(([name, score]) => {
+            const d        = document.createElement('div'); d.className = 'p-item';
+            const nameSpan = document.createElement('span');
+            const sc       = document.createElement('span'); sc.className = 'p-score';
+            sc.textContent = `$${Number(score).toLocaleString()}`;
+            nameSpan.textContent = `${name}: `;
+            nameSpan.appendChild(sc);
+
+            const adjDiv = document.createElement('div'); adjDiv.className = 'p-adj';
+            const plus   = document.createElement('button'); plus.className  = 'btn-ok btn-sm';  plus.textContent  = '+200';
+            const minus  = document.createElement('button'); minus.className = 'btn-red btn-sm'; minus.textContent = '−200';
+            plus.onclick  = () => adjustScore(name,  200);
+            minus.onclick = () => adjustScore(name, -200);
+            adjDiv.appendChild(plus); adjDiv.appendChild(minus);
+
+            d.appendChild(nameSpan); d.appendChild(adjDiv);
+            roster.appendChild(d);
+        });
+    });
+}
+
+// ── GAME MANAGEMENT ───────────────────────────────────────────────────────────
+function uploadBoard() {
+    try {
+        const input = JSON.parse(document.getElementById('json-in').value);
+        const board = input.board || input;
+        const tiles = [];
+        board.forEach((catObj, ci) => {
+            catObj.clues.forEach((clue, ri) => {
+                tiles.push({
+                    id: ci * catObj.clues.length + ri,
+                    value: clue.v, question: clue.q, answer: clue.a || '',
+                    category: catObj.category, played: false
+                });
+            });
+        });
+        db.ref('boardState').set({ categories: board.map(c => c.category), tiles });
+        log('Board uploaded successfully.');
+    } catch (e) { alert('Invalid JSON: ' + e.message); }
+}
+
+function generatePrompt() {
+    const topic = document.getElementById('m-topic').value.trim();
+    const cats  = document.getElementById('m-cats').value;
+    const ques  = document.getElementById('m-ques').value;
+    if (!topic) { alert('Enter a topic.'); return; }
+    const prompt =
+`Generate a JSON object for a Jeopardy board on the topic: "${topic}".
+The board must have exactly ${cats} categories with creative, thematic titles.
+Each category must have exactly ${ques} clues ordered by difficulty (200, 400, 600, 800, 1000).
+Each clue needs three fields: "v" (point value as a number), "q" (the clue as a Jeopardy-style statement/description — do NOT phrase it as a question), "a" (the correct answer the contestant should respond with).
+All facts must be accurate. Return ONLY raw JSON, no markdown or explanation:
+{ "metadata": { "title": "${topic}" }, "board": [ { "category": "...", "clues": [ { "v": 200, "q": "...", "a": "..." } ] } ] }`;
+    navigator.clipboard.writeText(prompt).then(() => {
+        log('Prompt copied to clipboard.');
+        closeModal('prompt-modal');
+    });
+}
+
+function exportFile() {
+    const raw  = document.getElementById('json-in').value;
+    let   name = 'jeopardy_board';
+    try { const p = JSON.parse(raw); name = p.metadata?.title || name; } catch {}
+    const fn = prompt('File name:', name);
+    if (!fn) return;
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(new Blob([raw], { type: 'application/json' }));
+    a.download = fn.replace(/[^a-z0-9_\-]/gi, '_') + '.json';
+    a.click();
+    log('Board exported.');
+}
+
+function importFile(files) {
+    const r = new FileReader();
+    r.onload = e => { document.getElementById('json-in').value = e.target.result; log('File imported.'); };
+    r.readAsText(files[0]);
+}
+
+function resetGame() {
+    if (!confirm('Reset the board and leaderboard?')) return;
+    db.ref('boardState/tiles').once('value', snap => {
+        const tiles = snap.val();
+        if (tiles) tiles.forEach((_, i) => db.ref(`boardState/tiles/${i}/played`).set(false));
+    });
+    db.ref('leaderboard').set({});
+    db.ref('activeClue').set({ status: 'inactive', tileId: null });
+    pendingGuess  = null;
+    wrongGuessers = new Set();
+    log('Game reset.');
+}
+
+function triggerOBSRefresh() {
+    db.ref('refreshTrigger').set(Date.now());
+    log('OBS refresh triggered.');
+}
+</script>
+</body>
+</html>
