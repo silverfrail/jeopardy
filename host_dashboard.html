@@ -308,25 +308,6 @@ function log(msg) {
         text: msg
     });
 }
-
-function renderLocalLog(timeStr, textStr) {
-    const wrap = document.getElementById('syslog');
-    if (!wrap) return;
-    const entry = document.createElement('div');
-    entry.className = 'log-entry';
-    
-    const time = document.createElement('span');
-    time.className = 'log-time';
-    time.textContent = `[${timeStr}]`;
-    
-    const text = document.createElement('span');
-    text.textContent = textStr;
-    
-    entry.appendChild(time);
-    entry.appendChild(text);
-    wrap.appendChild(entry);
-    wrap.scrollTop = wrap.scrollHeight;
-}
 function openModal(id)  { document.getElementById(id).classList.add('open');    }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 function randomStr(len) {
@@ -707,19 +688,34 @@ function initListeners() {
         });
     });
 
-    // Listen for log pushes from Firebase and display them locally
-    db.ref('activityLog').on('child_added', snap => {
-        const item = snap.val();
-        if (item) {
-            renderLocalLog(item.time || '', item.text || '');
-        }
-    });
-    // If the entire log node gets reset, clear the local container too
+    // Sync and render the activity log from Firebase
     db.ref('activityLog').on('value', snap => {
-        if (!snap.exists()) {
-            const wrap = document.getElementById('syslog');
-            if (wrap) wrap.innerHTML = '';
-        }
+        const wrap = document.getElementById('syslog');
+        if (!wrap) return;
+        wrap.innerHTML = ''; // Clear prior content
+        
+        const logs = snap.val();
+        if (!logs) return;
+
+        // Render all log entries sequentially
+        Object.values(logs).forEach(item => {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            const time = document.createElement('span');
+            time.className = 'log-time';
+            time.textContent = `[${item.time || ''}]`;
+            
+            const text = document.createElement('span');
+            text.textContent = item.text || '';
+            
+            entry.appendChild(time);
+            entry.appendChild(text);
+            wrap.appendChild(entry);
+        });
+        
+        // Auto-scroll to the bottom of the list
+        wrap.scrollTop = wrap.scrollHeight;
     });
 }
 
