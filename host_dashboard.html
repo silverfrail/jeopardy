@@ -302,16 +302,25 @@ const oauthReady = handleOAuthCallback();
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
 function log(msg) {
+    // Send to Firebase so it syncs across multiple hosts/sessions in real-time
+    db.ref('activityLog').push({
+        time: new Date().toLocaleTimeString(),
+        text: msg
+    });
+}
+
+function renderLocalLog(timeStr, textStr) {
     const wrap = document.getElementById('syslog');
+    if (!wrap) return;
     const entry = document.createElement('div');
     entry.className = 'log-entry';
     
     const time = document.createElement('span');
     time.className = 'log-time';
-    time.textContent = `[${new Date().toLocaleTimeString()}]`;
+    time.textContent = `[${timeStr}]`;
     
     const text = document.createElement('span');
-    text.textContent = msg;
+    text.textContent = textStr;
     
     entry.appendChild(time);
     entry.appendChild(text);
@@ -697,6 +706,21 @@ function initListeners() {
             roster.appendChild(d);
         });
     });
+
+    // Listen for log pushes from Firebase and display them locally
+    db.ref('activityLog').on('child_added', snap => {
+        const item = snap.val();
+        if (item) {
+            renderLocalLog(item.time || '', item.text || '');
+        }
+    });
+    // If the entire log node gets reset, clear the local container too
+    db.ref('activityLog').on('value', snap => {
+        if (!snap.exists()) {
+            const wrap = document.getElementById('syslog');
+            if (wrap) wrap.innerHTML = '';
+        }
+    });
 }
 
 // ── GAME MANAGEMENT ───────────────────────────────────────────────────────────
@@ -771,6 +795,7 @@ function resetGame() {
     });
     db.ref('leaderboard').set({});
     db.ref('activeClue').set({ status: 'inactive', tileId: null });
+    db.ref('activityLog').set(null); // Clear the log on reset
     pendingGuess  = null;
     wrongGuessers = new Set();
     log('Game reset.');
