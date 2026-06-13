@@ -55,6 +55,15 @@
         .ac-albl { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; margin-top: 8px; }
         .ac-ans  { color: var(--green); font-size: 1.1rem; font-weight: 700; }
 
+        /* ── Clue Timer ── */
+        #ac-timer { margin-top: 12px; }
+        .timer-bar-wrap { height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+        .timer-bar { height: 100%; border-radius: 3px; transition: width 0.9s linear, background 0.3s; }
+        .timer-count { font-size: 2rem; font-weight: 900; color: var(--green); text-align: center; line-height: 1; }
+        .timer-count.warn   { color: var(--yellow); }
+        .timer-count.urgent { color: var(--red);    }
+        .timer-label { font-size: 0.65rem; color: var(--dim); text-align: center; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 3px; }
+
         /* ── Pending Guess ── */
         #pg-panel { display: none; background: #1a1500; border: 2px solid var(--yellow); border-radius: 6px; padding: 12px; margin-top: 12px; }
         .pg-who  { font-size: 0.75rem; font-weight: 700; color: var(--yellow); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -161,6 +170,30 @@
     </div>
 </div>
 
+<!-- ── Reset / Settings Modal ── -->
+<div class="modal" id="reset-modal">
+    <div class="mbox">
+        <h3>⚙️ Game Settings</h3>
+        <div style="font-size:0.8rem;color:var(--dim);margin-bottom:16px;">Applying will reset the board, scores, and activity log.</div>
+
+        <div class="ptitle" style="margin-bottom:10px;">Countdown Timer</div>
+        <div class="toggle-row" style="margin-bottom:10px;">
+            <input type="checkbox" id="cfg-timer-on" onchange="document.getElementById('cfg-timer-opts').style.display=this.checked?'':'none'">
+            <label for="cfg-timer-on">Enable countdown timer per clue</label>
+            <span class="tip" data-tip="When enabled, a timer starts each time a clue is opened. The clue auto-dismisses when it reaches zero. You can still dismiss manually at any time.">?</span>
+        </div>
+        <div id="cfg-timer-opts" style="display:none;margin-left:24px;margin-bottom:8px;">
+            <label style="font-size:0.82rem;color:var(--dim);display:block;margin-bottom:5px;">Seconds per clue <span style="color:var(--dim);">(5 – 30)</span></label>
+            <input type="number" id="cfg-timer-secs" min="5" max="30" value="20" style="width:72px;">
+        </div>
+
+        <div class="mrow">
+            <button class="btn-sec" onclick="closeModal('reset-modal')">Cancel</button>
+            <button class="btn-red" onclick="confirmReset()">Reset &amp; Apply</button>
+        </div>
+    </div>
+</div>
+
 <input type="file" id="file-in" style="display:none" accept=".json" onchange="importFile(this.files)">
 
 <!-- ── Main UI ── -->
@@ -199,6 +232,13 @@
                 <div class="ac-q"   id="ac-q"></div>
                 <div class="ac-albl">Correct Answer</div>
                 <div class="ac-ans" id="ac-ans"></div>
+
+                <!-- Countdown Timer -->
+                <div id="ac-timer" style="display:none;">
+                    <div class="timer-bar-wrap"><div class="timer-bar" id="ac-timer-bar"></div></div>
+                    <div class="timer-count" id="ac-timer-count">20</div>
+                    <div class="timer-label">seconds remaining</div>
+                </div>
 
                 <!-- Pending Guess -->
                 <div id="pg-panel">
@@ -302,6 +342,13 @@ let userIdCache   = new Map();  // login → userId
 let lastBotReplyAt = new Map(); // username.toLowerCase() → timestamp
 let pendingChatMessages = [];   // messages queued while IRC socket is connecting
 let approvedCnt   = 0;
+
+// ── SETTINGS (persisted across sessions) ─────────────────────────────────────
+let timerEnabled    = localStorage.getItem('cfg_timer_on')   === '1';
+let timerSeconds    = Math.min(30, Math.max(5, parseInt(localStorage.getItem('cfg_timer_secs') || '20', 10)));
+let timerHandle     = null;
+let timerRemaining  = 0;
+let lastActiveTileId = null;
 
 // Handle implicit grant callback (token in URL hash) before anything else
 const oauthReady = handleOAuthCallback();
@@ -683,6 +730,45 @@ function updateQueueIndicator() {
     }
 }
 
+// ── CLUE TIMER ────────────────────────────────────────────────────────────────
+function startClueTimer() {
+    if (!timerEnabled) return;
+    clearClueTimer();
+    timerRemaining = timerSeconds;
+    document.getElementById('ac-timer').style.display = '';
+    updateTimerDisplay();
+    timerHandle = setInterval(() => {
+        timerRemaining--;
+        updateTimerDisplay();
+        if (timerRemaining <= 0) {
+            clearClueTimer();
+            log('⏱ Time expired — clue dismissed.');
+            dismissClue(false);
+        }
+    }, 1000);
+}
+
+function clearClueTimer() {
+    if (timerHandle) { clearInterval(timerHandle); timerHandle = null; }
+    const el = document.getElementById('ac-timer');
+    if (el) el.style.display = 'none';
+}
+
+function updateTimerDisplay() {
+    const count = document.getElementById('ac-timer-count');
+    const bar   = document.getElementById('ac-timer-bar');
+    if (count) {
+        count.textContent = timerRemaining;
+        const pct = timerRemaining / timerSeconds;
+        count.className = 'timer-count' + (pct <= 0.25 ? ' urgent' : pct <= 0.5 ? ' warn' : '');
+    }
+    if (bar) {
+        const pct = (timerRemaining / timerSeconds) * 100;
+        bar.style.width   = pct + '%';
+        bar.style.background = pct > 50 ? 'var(--green)' : pct > 25 ? 'var(--yellow)' : 'var(--red)';
+    }
+}
+
 function judgeGuess(correct) {
     if (!pendingGuess || !activeClue) return;
     const clueContext = `[${activeClue.category} -$${activeClue.value}]`;
@@ -700,6 +786,7 @@ function judgeGuess(correct) {
 }
 
 function dismissClue(resolved) {
+    clearClueTimer();
     db.ref('activeClue').set({ status: 'inactive', tileId: null });
     pendingGuess  = null;
     wrongGuessers = new Set();
@@ -775,8 +862,17 @@ function initListeners() {
         if (data?.status === 'active' && boardData?.tiles) {
             const t    = boardData.tiles.find(t => t.id === data.tileId);
             activeClue = { ...data, answer: t?.answer || '' };
+            // Start timer only when a genuinely new clue opens (not on board-reload)
+            if (data.tileId !== lastActiveTileId) {
+                lastActiveTileId = data.tileId;
+                requestAnimationFrame(startClueTimer);
+            }
         } else {
             activeClue = data;
+            if (lastActiveTileId !== null) {
+                lastActiveTileId = null;
+                clearClueTimer();
+            }
         }
         if (!data || data.status !== 'active') {
             pendingGuess  = null;
@@ -916,17 +1012,32 @@ function importFile(files) {
 }
 
 function resetGame() {
-    if (!confirm('Reset the board and leaderboard?')) return;
+    // Populate modal with current settings before showing
+    document.getElementById('cfg-timer-on').checked         = timerEnabled;
+    document.getElementById('cfg-timer-secs').value         = timerSeconds;
+    document.getElementById('cfg-timer-opts').style.display = timerEnabled ? '' : 'none';
+    openModal('reset-modal');
+}
+
+function confirmReset() {
+    // Read and persist settings
+    timerEnabled = document.getElementById('cfg-timer-on').checked;
+    timerSeconds = Math.min(30, Math.max(5, parseInt(document.getElementById('cfg-timer-secs').value, 10) || 20));
+    localStorage.setItem('cfg_timer_on',   timerEnabled ? '1' : '0');
+    localStorage.setItem('cfg_timer_secs', String(timerSeconds));
+    // Reset game state
     db.ref('boardState/tiles').once('value', snap => {
         const tiles = snap.val();
         if (tiles) tiles.forEach((_, i) => db.ref(`boardState/tiles/${i}/played`).set(false));
     });
     db.ref('leaderboard').set({});
     db.ref('activeClue').set({ status: 'inactive', tileId: null });
-    db.ref('boardState/activityLog').set(null); // Clear the log on reset
+    db.ref('boardState/activityLog').set(null);
     pendingGuess  = null;
     wrongGuessers = new Set();
-    log('Game reset.');
+    clearClueTimer();
+    closeModal('reset-modal');
+    log(`Game reset. Timer: ${timerEnabled ? timerSeconds + 's per clue' : 'off'}.`);
 }
 
 function triggerOBSRefresh() {
