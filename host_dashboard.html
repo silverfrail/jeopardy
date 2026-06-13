@@ -454,7 +454,7 @@ function setClueUI(clue) {
     document.getElementById('ac-val').innerText = `$${clue.value}`;
     document.getElementById('ac-q').innerText   = clue.question || '';
     document.getElementById('ac-ans').innerText = clue.answer   || '—';
-    document.getElementById('ac-panel').style.display = '';
+    document.getElementById('ac-panel').style.display = 'block';
 }
 
 function showPending({ username, text }) {
@@ -469,7 +469,7 @@ function showPending({ username, text }) {
     const m = document.getElementById('pg-mtch');
     m.innerText   = `${pct}% — ${lbl}`;
     m.className   = `pg-mtch ${cls}`;
-    document.getElementById('pg-panel').style.display = '';
+    document.getElementById('pg-panel').style.display = 'block';
 }
 
 function judgeGuess(correct) {
