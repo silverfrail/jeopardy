@@ -55,6 +55,10 @@
         .ac-albl { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; margin-top: 8px; }
         .ac-ans  { color: var(--green); font-size: 1.1rem; font-weight: 700; }
 
+        /* ── Answer Reveal (host panel) ── */
+        .ar-label  { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 10px; }
+        .ar-answer { color: var(--green); font-size: 1.6rem; font-weight: 900; line-height: 1.3; margin-bottom: 4px; }
+
         /* ── Clue Timer ── */
         #ac-timer { margin-top: 12px; }
         .timer-bar-wrap { height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
@@ -240,35 +244,47 @@
 
             <!-- Active Clue Panel (below board so grid doesn't shift on dismiss) -->
             <div id="ac-panel">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
-                    <div>
-                        <div class="ac-cat" id="ac-cat"></div>
-                        <div class="ac-val" id="ac-val"></div>
-                    </div>
-                    <button class="btn-sec btn-sm" onclick="dismissClue('manual')">Dismiss Clue</button>
-                </div>
-                <div class="ac-q"   id="ac-q"></div>
-                <div class="ac-albl">Correct Answer</div>
-                <div class="ac-ans" id="ac-ans"></div>
 
-                <!-- Countdown Timer -->
-                <div id="ac-timer" style="display:none;">
-                    <div class="timer-bar-wrap"><div class="timer-bar" id="ac-timer-bar"></div></div>
-                    <div class="timer-count" id="ac-timer-count">20</div>
-                    <div class="timer-label">seconds remaining</div>
+                <!-- Clue view (shown while clue is active) -->
+                <div id="clue-view">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+                        <div>
+                            <div class="ac-cat" id="ac-cat"></div>
+                            <div class="ac-val" id="ac-val"></div>
+                        </div>
+                        <button class="btn-sec btn-sm" onclick="dismissClue('manual')">Dismiss Clue</button>
+                    </div>
+                    <div class="ac-q"   id="ac-q"></div>
+                    <div class="ac-albl">Correct Answer</div>
+                    <div class="ac-ans" id="ac-ans"></div>
+
+                    <!-- Countdown Timer -->
+                    <div id="ac-timer" style="display:none;">
+                        <div class="timer-bar-wrap"><div class="timer-bar" id="ac-timer-bar"></div></div>
+                        <div class="timer-count" id="ac-timer-count">20</div>
+                        <div class="timer-label">seconds remaining</div>
+                    </div>
+
+                    <!-- Pending Guess -->
+                    <div id="pg-panel">
+                        <div class="pg-who" id="pg-who"></div>
+                        <div class="pg-txt" id="pg-txt"></div>
+                        <div class="pg-mtch" id="pg-mtch"></div>
+                        <div class="pg-acts">
+                            <button class="btn-ok"  style="flex:1" onclick="judgeGuess(true)">✓ Correct</button>
+                            <button class="btn-red" style="flex:1" onclick="judgeGuess(false)">✗ Wrong</button>
+                        </div>
+                        <div id="pg-queue" style="font-size:0.72rem;color:var(--dim);margin-top:8px;display:none;"></div>
+                    </div>
                 </div>
 
-                <!-- Pending Guess -->
-                <div id="pg-panel">
-                    <div class="pg-who" id="pg-who"></div>
-                    <div class="pg-txt" id="pg-txt"></div>
-                    <div class="pg-mtch" id="pg-mtch"></div>
-                    <div class="pg-acts">
-                        <button class="btn-ok"  style="flex:1" onclick="judgeGuess(true)">✓ Correct</button>
-                        <button class="btn-red" style="flex:1" onclick="judgeGuess(false)">✗ Wrong</button>
-                    </div>
-                    <div id="pg-queue" style="font-size:0.72rem;color:var(--dim);margin-top:8px;display:none;"></div>
+                <!-- Answer reveal view (shown after clue ends, before host dismisses) -->
+                <div id="ar-view" style="display:none;">
+                    <div class="ar-label">The answer was</div>
+                    <div class="ar-answer" id="ar-answer"></div>
+                    <button class="btn-sec" style="width:100%;margin-top:14px;" onclick="clearReveal()">Dismiss Answer</button>
                 </div>
+
             </div>
 
         </div>
@@ -842,13 +858,33 @@ function judgeGuess(correct) {
 function dismissClue(reason) {
     clearClueTimer();
     timerExpired  = false;
-    db.ref('activeClue').set({ status: 'inactive', tileId: null });
     pendingGuess  = null;
     wrongGuessers = new Set();
     guessQueue    = [];
     document.getElementById('pg-panel').style.display = 'none';
     updateQueueIndicator();
     if (reason === 'manual') log('Clue manually dismissed.');
+    revealAnswer();
+}
+
+function revealAnswer() {
+    const answer = activeClue?.answer;
+    if (!answer) {
+        // No answer stored — just go inactive
+        db.ref('activeClue').set({ status: 'inactive', tileId: null });
+        return;
+    }
+    db.ref('activeClue').set({
+        status:   'answer-reveal',
+        answer,
+        category: activeClue.category || '',
+        value:    activeClue.value    || 0
+    });
+}
+
+function clearReveal() {
+    db.ref('activeClue').set({ status: 'inactive', tileId: null });
+    log('Answer dismissed.');
 }
 
 // ── SCORE ─────────────────────────────────────────────────────────────────────
@@ -928,7 +964,8 @@ function initListeners() {
                 clearClueTimer();
             }
         }
-        if (!data || data.status !== 'active') {
+        // Only clear pending state on full inactive, not on answer-reveal
+        if (!data || data.status === 'inactive') {
             pendingGuess  = null;
             wrongGuessers = new Set();
             guessQueue    = [];
