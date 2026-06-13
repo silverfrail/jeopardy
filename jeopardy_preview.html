@@ -35,6 +35,12 @@
         /* ── Clue Overlay ── */
         #clue-overlay { position: absolute; inset: 0; background: rgba(10,10,18,0.98); border: 4px solid var(--blue); border-radius: 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 60px; text-align: center; opacity: 0; pointer-events: none; transition: opacity 0.25s ease; z-index: 10; }
         #clue-overlay.active { opacity: 1; }
+
+        /* ── Answer Reveal Overlay ── */
+        #answer-overlay { position: absolute; inset: 0; background: rgba(10,10,18,0.98); border: 4px solid var(--green); border-radius: 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 60px; text-align: center; opacity: 0; pointer-events: none; transition: opacity 0.25s ease; z-index: 11; }
+        #answer-overlay.active { opacity: 1; }
+        .ov-ar-label  { color: rgba(255,255,255,0.45); font-size: 1.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 24px; }
+        .ov-ar-answer { color: var(--green); font-size: 4.5rem; font-weight: 900; line-height: 1.3; max-width: 88%; }
         .ov-cat { color: var(--blue); font-size: 1.6rem; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; }
         .ov-val { color: var(--green); font-size: 3rem; font-weight: 900; margin-bottom: 36px; }
         .ov-txt { color: var(--yellow); font-size: 3.4rem; font-weight: 700; line-height: 1.4; max-width: 88%; }
@@ -88,6 +94,10 @@
                 <div class="ov-timer-bar-wrap"><div class="ov-timer-bar" id="ov-timer-bar"></div></div>
                 <div class="ov-timer-num" id="ov-timer-num">20</div>
             </div>
+        </div>
+        <div id="answer-overlay">
+            <div class="ov-ar-label">The answer was</div>
+            <div class="ov-ar-answer" id="ov-ar-answer"></div>
         </div>
     </div>
     <div id="leaderboard"></div>
@@ -182,11 +192,13 @@ db.ref('boardState').on('value', snap => {
 db.ref('activeClue').on('value', snap => {
     const clue    = snap.val();
     const overlay = document.getElementById('clue-overlay');
+    const answerOverlay = document.getElementById('answer-overlay');
     if (clue?.status === 'active' && clue.question) {
         document.getElementById('ov-cat').innerText = clue.category || '';
         document.getElementById('ov-val').innerText = `$${clue.value}`;
         document.getElementById('ov-txt').innerText = clue.question;
         overlay.classList.add('active');
+        answerOverlay.classList.remove('active');
         if (clue.tileId !== pvActiveTileId) {
             pvActiveTileId = clue.tileId;
             // Read timer config directly from the clue — avoids race with settings listener
@@ -194,8 +206,15 @@ db.ref('activeClue').on('value', snap => {
             pvTimerSeconds = Math.min(30, Math.max(5, clue.timerSeconds || 20));
             requestAnimationFrame(startPreviewTimer);
         }
+    } else if (clue?.status === 'answer-reveal') {
+        overlay.classList.remove('active');
+        clearPreviewTimer();
+        pvActiveTileId = null;
+        document.getElementById('ov-ar-answer').innerText = clue.answer || '';
+        answerOverlay.classList.add('active');
     } else {
         overlay.classList.remove('active');
+        answerOverlay.classList.remove('active');
         pvActiveTileId = null;
         clearPreviewTimer();
     }
