@@ -497,6 +497,10 @@ function initTMI() {
     ws.onmessage = e => {
         e.data.split('\r\n').filter(Boolean).forEach(line => {
             if (line.startsWith('PING')) { ws.send('PONG :tmi.twitch.tv'); return; }
+            if (line.includes(' NOTICE ')) {
+                const noticeMatch = line.match(/NOTICE [^ ]+ :(.+)$/);
+                if (noticeMatch) log(`Twitch IRC notice: ${noticeMatch[1]}`);
+            }
             const parsed = parseTwitchIRC(line);
             if (parsed) onChat(parsed.channel, parsed.tags, parsed.message);
         });
@@ -507,11 +511,12 @@ function initTMI() {
 }
 
 function sendChatMessage(text) {
-    if (!twitchToken || !twitchLogin) return;
-    if (!tmiClient || tmiClient.readyState !== WebSocket.OPEN) return;
+    if (!twitchToken || !twitchLogin) { log('Chat reply skipped: Twitch not connected.'); return; }
+    if (!tmiClient || tmiClient.readyState !== WebSocket.OPEN) { log('Chat reply skipped: IRC socket not open.'); return; }
     const safe = String(text || '').replace(/[\r\n]+/g, ' ').trim();
     if (!safe) return;
     tmiClient.send(`PRIVMSG #${BROADCASTER} :${safe}`);
+    log(`→ Chat sent: ${safe}`);
 }
 
 async function onChat(channel, tags, message) {
