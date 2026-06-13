@@ -209,6 +209,7 @@
                         <button class="btn-ok"  style="flex:1" onclick="judgeGuess(true)">✓ Correct</button>
                         <button class="btn-red" style="flex:1" onclick="judgeGuess(false)">✗ Wrong</button>
                     </div>
+                    <div id="pg-queue" style="font-size:0.72rem;color:var(--dim);margin-top:8px;display:none;"></div>
                 </div>
             </div>
 
@@ -294,6 +295,7 @@ let twitchLogin   = null;
 let boardData     = null;
 let activeClue    = null;
 let pendingGuess  = null;       // { username, text }
+let guessQueue    = [];         // guesses waiting while pendingGuess is active
 let wrongGuessers = new Set();  // usernames who guessed wrong on current clue
 let followerCache = new Map();  // username.toLowerCase() → boolean
 let userIdCache   = new Map();  // login → userId
@@ -520,11 +522,12 @@ async function onChat(channel, tags, message) {
     const guessText = msg.slice(6).trim();
     if (!guessText) return;
     if (!activeClue || activeClue.status !== 'active') return;
-    if (pendingGuess) return;
 
     const username = tags['display-name'] || tags['username'];
     const login = (tags['username'] || username || '').toLowerCase();
     if (wrongGuessers.has(username.toLowerCase())) return;
+    // Don't let the same user pile up multiple queued guesses
+    if (guessQueue.some(g => g.username.toLowerCase() === username.toLowerCase())) return;
 
     const followersOnly = document.getElementById('followers-only')?.checked ?? true;
     if (followersOnly && twitchToken) {
@@ -543,6 +546,13 @@ async function onChat(channel, tags, message) {
         }
     } else if (followersOnly && !twitchToken) {
         log('Followers-only enabled but Twitch auth missing; allowing guess (verification unavailable).');
+    }
+
+    if (pendingGuess) {
+        guessQueue.push({ username, text: guessText });
+        log(`Guess queued: ${username} → "${guessText}" (${guessQueue.length} in queue)`);
+        updateQueueIndicator();
+        return;
     }
 
     pendingGuess = { username, text: guessText };
@@ -635,6 +645,29 @@ function showPending({ username, text }) {
     m.innerText   = `${pct}% — ${lbl}`;
     m.className   = `pg-mtch ${cls}`;
     document.getElementById('pg-panel').style.display = 'block';
+    updateQueueIndicator();
+}
+
+function showNextGuess() {
+    if (guessQueue.length === 0) {
+        document.getElementById('pg-panel').style.display = 'none';
+        return;
+    }
+    const next = guessQueue.shift();
+    pendingGuess = next;
+    showPending(next);
+    log(`Next guess: ${next.username} → "${next.text}"`);
+}
+
+function updateQueueIndicator() {
+    const el = document.getElementById('pg-queue');
+    if (!el) return;
+    if (guessQueue.length > 0) {
+        el.style.display = '';
+        el.textContent = `${guessQueue.length} more guess${guessQueue.length > 1 ? 'es' : ''} waiting in queue`;
+    } else {
+        el.style.display = 'none';
+    }
 }
 
 function judgeGuess(correct) {
@@ -648,7 +681,8 @@ function judgeGuess(correct) {
         wrongGuessers.add(pendingGuess.username.toLowerCase());
         log(`✗ ${pendingGuess.username} wrong on ${clueContext}. Clue still open.`);
         pendingGuess = null;
-        document.getElementById('pg-panel').style.display = 'none';
+        showNextGuess();
+        updateQueueIndicator();
     }
 }
 
@@ -656,7 +690,9 @@ function dismissClue(resolved) {
     db.ref('activeClue').set({ status: 'inactive', tileId: null });
     pendingGuess  = null;
     wrongGuessers = new Set();
+    guessQueue    = [];
     document.getElementById('pg-panel').style.display = 'none';
+    updateQueueIndicator();
     if (!resolved) {
         log('Clue dismissed.');
     }
@@ -732,7 +768,9 @@ function initListeners() {
         if (!data || data.status !== 'active') {
             pendingGuess  = null;
             wrongGuessers = new Set();
+            guessQueue    = [];
             document.getElementById('pg-panel').style.display = 'none';
+            updateQueueIndicator();
         }
         setClueUI(activeClue);
         renderBoard();
