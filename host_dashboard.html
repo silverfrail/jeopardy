@@ -102,7 +102,11 @@
         input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--blue); }
 
         /* ── Log ── */
-        #syslog { font-size: 0.72rem; color: var(--yellow); font-style: italic; text-align: right; min-height: 1em; padding: 2px 0; flex-shrink: 0; }
+        /* ── Log Panel ── */
+        .log-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; flex-shrink: 0; display: flex; flex-direction: column; margin-top: 4px; }
+        #syslog { font-size: 0.72rem; color: var(--yellow); overflow-y: auto; height: 160px; word-break: break-word; line-height: 1.4; padding-right: 4px; }
+        .log-entry { margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 4px; }
+        .log-time { color: var(--dim); margin-right: 6px; font-family: monospace; }
 
         /* ── Tooltip ── */
         .tip { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; background: #383858; color: var(--dim); font-size: 0.65rem; font-weight: 700; cursor: default; margin-left: 5px; flex-shrink: 0; }
@@ -260,7 +264,11 @@
                 </div>
             </div>
 
-            <div id="syslog"></div>
+            <!-- Audit Log Panel -->
+            <div class="log-panel">
+                <div class="ptitle">Activity Log</div>
+                <div id="syslog"></div>
+            </div>
 
         </div>
     </div>
@@ -294,7 +302,21 @@ const oauthReady = handleOAuthCallback();
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
 function log(msg) {
-    document.getElementById('syslog').innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    const wrap = document.getElementById('syslog');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    
+    const time = document.createElement('span');
+    time.className = 'log-time';
+    time.textContent = `[${new Date().toLocaleTimeString()}]`;
+    
+    const text = document.createElement('span');
+    text.textContent = msg;
+    
+    entry.appendChild(time);
+    entry.appendChild(text);
+    wrap.appendChild(entry);
+    wrap.scrollTop = wrap.scrollHeight;
 }
 function openModal(id)  { document.getElementById(id).classList.add('open');    }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
