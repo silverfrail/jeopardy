@@ -301,7 +301,7 @@
     <div class="hdr">
         <h1>Jeopardy! Host</h1>
         <span><span class="dot" id="fb-dot"></span><span class="stat-label">Firebase</span></span>
-        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v12</span>
+        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v13</span>
         <span><span class="dot" id="tw-dot"></span><span class="stat-label">Twitch</span></span>
         <button class="btn-sec btn-sm" onclick="triggerOBSRefresh()">⚡ OBS</button>
         <button class="btn-sec btn-sm" onclick="openSettings()">⚙️ Settings</button>
@@ -509,6 +509,7 @@ let lastCorrectAnswerer = null;  // username of most recent correct answerer
 let leaderboardScores   = {};    // cached scores for wager limit calc
 let gameStarted         = false; // true once first tile is clicked; locks DD settings
 let clueScorers         = [];    // per-clue scorer records; written to tileResults on reveal
+let lastClueStatus      = null;  // tracks previous activeClue status to detect DD→active transition
 let penaltyRegular      = true;  // deduct points for wrong regular clue answers
 let penaltyDD           = true;  // deduct points for wrong DD answers
 
@@ -1303,10 +1304,10 @@ function adjustScore(name, amount) {
 // ── DAILY DOUBLE HELPERS ──────────────────────────────────────────────────────
 function calcWagerLimits(username) {
     const score = leaderboardScores[username] || 0;
-    if (score === 0) return { min: 200, max: 200 };
-    if (score > 0)   return { min: 200, max: score };
-    // Negative score: player must bet at least enough to return to zero
-    return { min: Math.abs(score), max: Math.abs(score) };
+    if (score >= 0) return { min: 200, max: Math.max(200, score) };
+    // Negative score: player may bet any amount from $200 up to their debt (or $200 if debt is smaller)
+    const debt = Math.abs(score);
+    return { min: 200, max: Math.max(200, debt) };
 }
 
 function startWagerTimer(player, timeout) {
@@ -1459,10 +1460,12 @@ function initListeners() {
             const t    = boardData.tiles.find(t => t.id === data.tileId);
             activeClue = { ...data, answer: t?.answer || '' };
             clearWagerTimer();
-            // Start clue timer only when a genuinely new clue opens (not on board-reload)
-            if (data.tileId !== lastActiveTileId) {
+            // Start clue timer when genuinely new, OR when transitioning from daily-double (same tileId, skip wager)
+            const isNewClue = data.tileId !== lastActiveTileId || lastClueStatus === 'daily-double';
+            if (isNewClue) {
                 lastActiveTileId = data.tileId;
-                clueScorers = []; // reset scorer list for new clue
+                lastClueStatus   = data.status;
+                clueScorers = [];
                 requestAnimationFrame(startClueTimer);
             }
         } else if (data?.status === 'daily-double') {
@@ -1471,6 +1474,7 @@ function initListeners() {
             // Start wager countdown only for a genuinely new DD event
             if (data.tileId !== lastActiveTileId) {
                 lastActiveTileId = data.tileId;
+                lastClueStatus   = 'daily-double';
                 clueScorers = []; // reset scorer list for new DD
                 startWagerTimer(data.ddPlayer, data.ddWagerTimeout);
                 const lim = calcWagerLimits(data.ddPlayer || '');
@@ -1480,6 +1484,7 @@ function initListeners() {
             activeClue = data;
             if (lastActiveTileId !== null) {
                 lastActiveTileId = null;
+                lastClueStatus   = null;
                 clearClueTimer();
                 clearWagerTimer();
             }
@@ -1586,6 +1591,11 @@ function uploadBoard() {
 
 function commitUpload(resetScores) {
     if (!pendingUploadTiles) return;
+    // Ask about lastCorrectAnswerer before wiping state
+    if (lastCorrectAnswerer !== null) {
+        const keep = confirm(`Is this a continuation of the previous game?\n\nOK  →  Keep "${lastCorrectAnswerer}" as the last correct answerer (Daily Double eligible)\nCancel  →  Fresh game — clear it`);
+        if (!keep) lastCorrectAnswerer = null;
+    }
     // Write tiles to Firebase without DD flags — DDs are assigned in applySettings
     const tiles = pendingUploadTiles.map(t => { const c = { ...t }; delete c.dd; return c; });
     db.ref('boardState').set({ categories: pendingUploadCategories, tiles });
@@ -1650,6 +1660,11 @@ function importFile(files) {
 }
 
 function resetGameState() {
+    // Ask about lastCorrectAnswerer before wiping state
+    if (lastCorrectAnswerer !== null) {
+        const keep = confirm(`Is this a continuation of the previous game?\n\nOK  →  Keep "${lastCorrectAnswerer}" as the last correct answerer (Daily Double eligible)\nCancel  →  Fresh game — clear it`);
+        if (!keep) lastCorrectAnswerer = null;
+    }
     // Reset tiles, scores, log, and active clue; unlock DD settings; keep modal open
     gameStarted   = false;
     pendingGuess  = null;
