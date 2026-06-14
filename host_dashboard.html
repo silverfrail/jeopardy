@@ -408,6 +408,7 @@ const SESSION_ID = (() => {
     return id;
 })();
 let isChatPrimary   = false;  // true only for the dashboard that owns chat processing
+const chatPrimaryRef = db.ref('settings/chatPrimary'); // Firebase node for chat primary election
 
 // Handle implicit grant callback (token in URL hash) before anything else
 const oauthReady = handleOAuthCallback();
@@ -435,7 +436,7 @@ function initDashboard() {
     document.getElementById('ui').style.display = 'flex';
     document.getElementById('fb-dot').classList.add('on');
     // Push current settings to Firebase so the preview overlay stays in sync
-    db.ref('settings').set({ timerEnabled, timerSeconds, followersOnly: document.getElementById('followers-only').checked });
+    db.ref('settings').update({ timerEnabled, timerSeconds, followersOnly: document.getElementById('followers-only').checked });
     log('Dashboard initialized.');
     initListeners();
     listenChatPrimary();     // claim or observe chat-primary role
@@ -465,12 +466,13 @@ if (sessionStorage.getItem('dashboard_unlocked')) { initDashboard(); }
 // ── TWITCH OAUTH (Implicit Grant) ────────────────────────────────────────────
 function startTwitchAuth() {
     const state = randomStr(16);
-    localStorage.setItem('oauth_state', state);
+    try { localStorage.setItem('oauth_state', state); } catch(e) { log('Warning: localStorage unavailable — state check skipped.'); }
     const p = new URLSearchParams({
         client_id: CLIENT_ID, redirect_uri: REDIRECT_URI,
         response_type: 'token', scope: SCOPES,
         force_verify: 'false', state
     });
+    log('Redirecting to Twitch auth…');
     window.location.href = `https://id.twitch.tv/oauth2/authorize?${p}`;
 }
 
@@ -555,9 +557,6 @@ function updateFollowersOnly() {
 function disconnectTwitch() {
     // Only clear OAuth state — keep IRC WebSocket alive so chat still works without follower checks
     clearTwitchSession();
-    const cb = document.getElementById('followers-only');
-    if (cb) cb.checked = false;
-    document.getElementById('tw-auth-section').style.display = 'none';
     document.getElementById('tw-connect').style.display   = '';
     document.getElementById('tw-connected').style.display = 'none';
     document.getElementById('tw-dot').classList.remove('on');
@@ -568,8 +567,6 @@ function disconnectTwitch() {
 // Firebase node: settings/chatPrimary = SESSION_ID of current owner, or null.
 // First dashboard to open claims it. The other becomes helper and shows "Claim" button.
 // Owner is released on page unload; helper can steal it at any time.
-
-const chatPrimaryRef = db.ref('settings/chatPrimary');
 
 function updateChatBadge() {
     const badge     = document.getElementById('chat-badge');
@@ -630,11 +627,10 @@ function listenFollowersOnly() {
         if (val === null) return; // not yet written
         const cb = document.getElementById('followers-only');
         if (!cb) return;
-        // Only update DOM if value differs — avoids triggering updateFollowersOnly → Firebase loop
+        // Only sync checkbox and auth-section visibility — never disconnect Twitch from a remote change
         if (cb.checked !== val) {
             cb.checked = val;
             document.getElementById('tw-auth-section').style.display = val ? '' : 'none';
-            if (!val && twitchToken) disconnectTwitch();
         }
     });
 }
