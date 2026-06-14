@@ -408,6 +408,7 @@ const SESSION_ID = (() => {
     return id;
 })();
 let isChatPrimary   = false;  // true only for the dashboard that owns chat processing
+const chatPrimaryRef = db.ref('settings/chatPrimary'); // Firebase node for chat primary election
 
 // Handle implicit grant callback (token in URL hash) before anything else
 const oauthReady = handleOAuthCallback();
@@ -435,7 +436,7 @@ function initDashboard() {
     document.getElementById('ui').style.display = 'flex';
     document.getElementById('fb-dot').classList.add('on');
     // Push current settings to Firebase so the preview overlay stays in sync
-    db.ref('settings').set({ timerEnabled, timerSeconds, followersOnly: document.getElementById('followers-only').checked });
+    db.ref('settings').update({ timerEnabled, timerSeconds, followersOnly: document.getElementById('followers-only').checked });
     log('Dashboard initialized.');
     initListeners();
     listenChatPrimary();     // claim or observe chat-primary role
@@ -566,8 +567,6 @@ function disconnectTwitch() {
 // Firebase node: settings/chatPrimary = SESSION_ID of current owner, or null.
 // First dashboard to open claims it. The other becomes helper and shows "Claim" button.
 // Owner is released on page unload; helper can steal it at any time.
-
-const chatPrimaryRef = db.ref('settings/chatPrimary');
 
 function updateChatBadge() {
     const badge     = document.getElementById('chat-badge');
