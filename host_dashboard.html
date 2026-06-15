@@ -94,6 +94,12 @@
         .panel.collapsed > *:not(.ptitle),
         .log-panel.collapsed > *:not(.ptitle) { display: none !important; }
 
+        /* ── Panel Drag ── */
+        .panel-grip { color: var(--dim); cursor: grab; font-size: 0.85rem; padding: 0 4px 0 0; line-height: 1; flex-shrink: 0; user-select: none; }
+        .panel-grip:active { cursor: grabbing; }
+        .panel.dragging, .log-panel.dragging { opacity: 0.4; }
+        .panel.drag-over, .log-panel.drag-over { outline: 2px dashed var(--blue); outline-offset: 2px; }
+
         /* ── Host Chat ── */
         #host-chat-msgs { height: 160px; overflow-y: auto; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
         .hc-msg { font-size: 0.8rem; line-height: 1.4; }
@@ -328,7 +334,7 @@
     <div class="hdr">
         <h1>Jeopardy! Host</h1>
         <span><span class="dot" id="fb-dot"></span><span class="stat-label">Firebase</span></span>
-        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v19</span>
+        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v20</span>
         <span><span class="dot" id="tw-dot"></span><span class="stat-label">Twitch</span></span>
         <button class="btn-sec btn-sm" onclick="triggerOBSRefresh()">⚡ OBS</button>
         <button class="btn-sec btn-sm" onclick="openSettings()">⚙️ Settings</button>
@@ -415,8 +421,8 @@
         <div class="sidebar">
 
             <!-- Twitch -->
-            <div class="panel">
-                <div class="ptitle">Twitch <button class="panel-toggle" onclick="togglePanel(this)" title="Collapse">▾</button></div>
+            <div class="panel" data-panel-id="twitch" draggable="true">
+                <div class="ptitle"><span class="panel-grip" title="Drag to reorder">☰</span>Twitch <button class="panel-toggle" onclick="togglePanel(this)" title="Collapse">▾</button></div>
 
                 <!-- Chat host role indicator -->
                 <div class="chat-role-row">
@@ -447,14 +453,14 @@
             </div>
 
             <!-- Scoreboard -->
-            <div class="panel collapsed">
-                <div class="ptitle">Scoreboard <button class="panel-toggle" onclick="togglePanel(this)" title="Expand">▸</button></div>
+            <div class="panel collapsed" data-panel-id="scoreboard" draggable="true">
+                <div class="ptitle"><span class="panel-grip" title="Drag to reorder">☰</span>Scoreboard <button class="panel-toggle" onclick="togglePanel(this)" title="Expand">▸</button></div>
                 <div id="roster"><div style="color:var(--dim);font-size:0.82rem;">No players yet.</div></div>
             </div>
 
             <!-- Category Suggestions -->
-            <div class="panel collapsed">
-                <div class="ptitle">Category Suggestions
+            <div class="panel collapsed" data-panel-id="categories" draggable="true">
+                <div class="ptitle"><span class="panel-grip" title="Drag to reorder">☰</span>Category Suggestions
                     <div style="display:flex;gap:5px;align-items:center;">
                         <button class="btn-red btn-sm" onclick="clearAllCategories()">Clear All</button>
                         <button class="panel-toggle" onclick="togglePanel(this)" title="Expand">▸</button>
@@ -464,8 +470,8 @@
             </div>
 
             <!-- Game Management -->
-            <div class="panel collapsed">
-                <div class="ptitle">Game Management
+            <div class="panel collapsed" data-panel-id="game-management" draggable="true">
+                <div class="ptitle"><span class="panel-grip" title="Drag to reorder">☰</span>Game Management
                     <div style="display:flex;gap:5px;align-items:center;">
                         <button class="btn-sec btn-sm" onclick="document.getElementById('file-in').click()">Import</button>
                         <button class="btn-sec btn-sm" onclick="exportFile()">Export</button>
@@ -480,14 +486,14 @@
             </div>
 
             <!-- Audit Log Panel -->
-            <div class="log-panel collapsed">
-                <div class="ptitle">Activity Log! <button class="panel-toggle" onclick="togglePanel(this)" title="Expand">▸</button></div>
+            <div class="log-panel collapsed" data-panel-id="activity-log" draggable="true">
+                <div class="ptitle"><span class="panel-grip" title="Drag to reorder">☰</span>Activity Log! <button class="panel-toggle" onclick="togglePanel(this)" title="Expand">▸</button></div>
                 <div id="syslog"></div>
             </div>
 
             <!-- Host Chat -->
-            <div class="panel collapsed" id="host-chat-panel">
-                <div class="ptitle">Host Chat
+            <div class="panel collapsed" id="host-chat-panel" data-panel-id="host-chat" draggable="true">
+                <div class="ptitle"><span class="panel-grip" title="Drag to reorder">☰</span>Host Chat
                     <div style="display:flex;gap:5px;align-items:center;">
                         <button class="btn-red btn-sm" onclick="clearHostChat()">Clear</button>
                         <span class="panel-toggle-wrap">
@@ -607,7 +613,70 @@ function togglePanel(btn) {
     }
 }
 
-// ── HOST CHAT ────────────────────────────────────────────────────────────────
+// ── SIDEBAR DRAG-AND-DROP ─────────────────────────────────────────────────────
+let dragSrc = null;
+
+function initPanelDrag() {
+    const sidebar = document.querySelector('.sidebar');
+
+    // Restore saved order for this host
+    const orderKey = `sidebar_order_${hostName}`;
+    const saved = JSON.parse(localStorage.getItem(orderKey) || 'null');
+    if (saved) {
+        saved.forEach(id => {
+            const el = sidebar.querySelector(`[data-panel-id="${id}"]`);
+            if (el) sidebar.appendChild(el);
+        });
+    }
+
+    sidebar.addEventListener('dragstart', e => {
+        const panel = e.target.closest('[data-panel-id]');
+        if (!panel) return;
+        if (!e.target.classList.contains('panel-grip')) { e.preventDefault(); return; }
+        dragSrc = panel;
+        panel.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+    });
+
+    sidebar.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const panel = e.target.closest('[data-panel-id]');
+        if (!panel || panel === dragSrc) return;
+        sidebar.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+        panel.classList.add('drag-over');
+    });
+
+    sidebar.addEventListener('dragleave', e => {
+        const panel = e.target.closest('[data-panel-id]');
+        if (panel) panel.classList.remove('drag-over');
+    });
+
+    sidebar.addEventListener('drop', e => {
+        e.preventDefault();
+        const target = e.target.closest('[data-panel-id]');
+        if (!target || !dragSrc || target === dragSrc) return;
+        const rect = target.getBoundingClientRect();
+        const after = e.clientY > rect.top + rect.height / 2;
+        sidebar.insertBefore(dragSrc, after ? target.nextSibling : target);
+        savePanelOrder();
+    });
+
+    sidebar.addEventListener('dragend', () => {
+        sidebar.querySelectorAll('.dragging, .drag-over').forEach(el => {
+            el.classList.remove('dragging', 'drag-over');
+        });
+        dragSrc = null;
+    });
+}
+
+function savePanelOrder() {
+    const order = [...document.querySelectorAll('.sidebar [data-panel-id]')]
+        .map(el => el.dataset.panelId);
+    localStorage.setItem(`sidebar_order_${hostName}`, JSON.stringify(order));
+}
+
+
 const HOST_COLORS = ['#7ecfff','#a8ff78','#ffb86c','#ff79c6','#bd93f9','#50fa7b'];
 function hostColor(name) {
     let h = 0;
@@ -688,6 +757,7 @@ function initDashboard() {
     listenPendingGuess();          // sync pending guess panel across dashboards
     listenCategorySubmissions();   // sync viewer category suggestions
     listenHostChat();               // sync host-to-host chat
+    initPanelDrag();                // sidebar drag-and-drop reordering
     initTMI();  // always listen to chat, regardless of OAuth state
     oauthReady.then(() => checkTwitchSession());
     // Release chat-primary lock when this tab closes
