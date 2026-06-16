@@ -82,10 +82,12 @@
         /* ── Board ── */
         #board-wrap { display: grid; gap: 5px; margin-top: 4px; }
         .bc { background: #090911; border: 1px solid var(--blue); padding: 7px 4px; text-align: center; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; border-radius: 3px; word-break: break-word; line-height: 1.3; }
-        .bt { background: #090911; border: 1px solid var(--border); padding: 8px; text-align: center; cursor: pointer; color: var(--green); font-weight: 700; border-radius: 3px; font-size: 0.85rem; transition: border-color 0.15s; }
+        .bt { background: #090911; border: 1px solid var(--border); padding: 8px; text-align: center; cursor: pointer; color: var(--green); font-weight: 700; border-radius: 3px; font-size: 0.85rem; transition: border-color 0.15s; position: relative; }
         .bt:hover  { border-color: var(--blue); }
-        .bt.played { opacity: 0.12; pointer-events: none; }
+        .bt.played { opacity: 0.35; cursor: default; }
         .bt.active { border-color: #ffff5c; box-shadow: 0 0 6px rgba(255,255,92,0.35); }
+        .bt-review { position: absolute; top: 2px; right: 2px; background: rgba(58,123,255,0.85); border: none; color: #fff; font-size: 0.55rem; padding: 2px 3px; border-radius: 2px; cursor: pointer; line-height: 1; z-index: 1; }
+        .bt-review:hover { background: var(--blue); }
 
         /* ── Panel Collapse ── */
         .panel-toggle { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 0.85rem; padding: 0 2px; line-height: 1; flex-shrink: 0; }
@@ -346,7 +348,7 @@
     <div class="hdr">
         <h1>Jeopardy! Host</h1>
         <span><span class="dot" id="fb-dot"></span><span class="stat-label">Firebase</span></span>
-        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v28</span>
+        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v29</span>
         <span><span class="dot" id="tw-dot"></span><span class="stat-label">Twitch</span></span>
         <button class="btn-sec btn-sm" onclick="triggerOBSRefresh()">⚡ OBS</button>
         <button class="btn-sec btn-sm" onclick="openSettings()">⚙️ Settings</button>
@@ -1231,7 +1233,8 @@ async function onChat(channel, tags, message) {
 
     // ── Handle !wager for Daily Double ───────────────────────────────────────
     if (msg.toLowerCase().startsWith('!wager') && activeClue?.status === 'daily-double') {
-        if (username.toLowerCase() === (activeClue.ddPlayer || '').toLowerCase()) {
+        const ddp = (activeClue.ddPlayer || '').toLowerCase();
+        if (!ddp || username.toLowerCase() === ddp) {
             processDDWager(username, msg.slice(6).trim());
         }
         return;
@@ -1398,7 +1401,7 @@ function setClueUI(clue) {
     if (clue.status === 'answer-reveal') {
         document.getElementById('ac-cat').innerText  = clue.category || '';
         document.getElementById('ac-val').innerText  = `$${clue.value}`;
-        document.getElementById('ac-q').innerText    = '';
+        document.getElementById('ac-q').innerText    = clue.question || '';
         document.getElementById('ac-albl').innerText = 'The answer was';
         document.getElementById('ac-ans').innerText  = clue.answer || '—';
         if (pgPanel)    pgPanel.style.display   = 'none';
@@ -1707,27 +1710,35 @@ function renderBoard() {
             const d       = document.createElement('div');
             d.className   = 'bt' + (tile.played ? ' played' : '') + (tile.id === activeId ? ' active' : '');
             // Show dollar value; add DD badge for host if tile is a Daily Double
+            d.textContent = `$${tile.value}`;
             if (tile.dd && !tile.played) {
-                d.innerHTML = `$${tile.value}<span style="position:absolute;top:2px;right:4px;font-size:0.52rem;font-weight:900;color:var(--yellow);letter-spacing:0.05em;">DD</span>`;
-                d.style.position = 'relative';
-            } else {
-                d.innerText = `$${tile.value}`;
+                const badge = document.createElement('span');
+                badge.style.cssText = 'position:absolute;top:2px;right:4px;font-size:0.52rem;font-weight:900;color:var(--yellow);letter-spacing:0.05em;';
+                badge.textContent = 'DD';
+                d.appendChild(badge);
             }
-            if (!tile.played) {
+            if (tile.played) {
+                const reviewBtn = document.createElement('button');
+                reviewBtn.className = 'bt-review';
+                reviewBtn.title = 'Review clue';
+                reviewBtn.textContent = '👁';
+                reviewBtn.onclick = (e) => { e.stopPropagation(); reviewClue(tile); };
+                d.appendChild(reviewBtn);
+            } else {
                 d.onclick = () => {
                     if (!gameStarted) {
                         gameStarted = true;
                         db.ref('boardState/hostSettings').update({ gameStarted: true });
                     }
                     db.ref(`boardState/tiles/${origIdx}/played`).set(true);
-                    if (tile.dd && lastCorrectAnswerer) {
+                    if (tile.dd) {
                         // Trigger Daily Double flow
                         db.ref('activeClue').set({
                             status: 'daily-double',
                             tileId: tile.id,
                             value: tile.value, category: tile.category,
                             question: tile.question, answer: tile.answer || '',
-                            ddPlayer: lastCorrectAnswerer,
+                            ddPlayer: lastCorrectAnswerer || '',
                             ddWagerTimeout,
                             timerEnabled, timerSeconds
                         });
@@ -2058,6 +2069,17 @@ function applySettings() {
 }
 
 
+
+function reviewClue(tile) {
+    db.ref('activeClue').set({
+        status: 'answer-reveal',
+        answer: tile.answer || '—',
+        category: tile.category || '',
+        value: tile.value || 0,
+        question: tile.question || ''
+    });
+    log(`Reviewing: [${tile.category} $${tile.value}] ${tile.question}`);
+}
 
 function triggerOBSRefresh() {
     db.ref('refreshTrigger').set(Date.now());
