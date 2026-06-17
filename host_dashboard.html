@@ -726,6 +726,14 @@ function listenActiveScreen() {
     });
 }
 
+function listenFirstQuestion() {
+    db.ref('boardState/firstQuestion').on('value', snap => {
+        const val = snap.val();
+        firstQuestionData = val ? { question: val.question || '', answer: val.answer || '', category: val.category || '' } : null;
+        updateFirstQuestionCard();
+    });
+}
+
 function togglePanel(btn) {
     const panel = btn.closest('.panel, .log-panel');
     const collapsed = panel.classList.toggle('collapsed');
@@ -902,6 +910,7 @@ function initDashboard() {
     listenHostChat();               // sync host-to-host chat
     initPanelDrag();                // sidebar drag-and-drop reordering
     listenActiveScreen();           // sync preview screen selection
+    listenFirstQuestion();          // restore first question from Firebase on load
     initTMI();  // always listen to chat, regardless of OAuth state
     // Optimistically restore Twitch UI if cached credentials exist
     // (checkTwitchSession will validate async and revert if expired)
@@ -2287,7 +2296,7 @@ function commitUpload(resetScores) {
     db.ref('activeClue').set({ status: 'inactive', tileId: null });
     firstQuestionData = pendingFirstQuestion;
     db.ref('boardState/firstQuestion').set(firstQuestionData
-        ? { question: firstQuestionData.question, category: firstQuestionData.category }
+        ? { question: firstQuestionData.question, answer: firstQuestionData.answer, category: firstQuestionData.category }
         : null);
     pendingFirstQuestion    = null;
     pendingUploadTiles      = null;
