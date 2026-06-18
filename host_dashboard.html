@@ -1296,6 +1296,22 @@ function listenChatPrimary() {
     });
 }
 
+// ── MULTI-HOST: Shared Followers-Only ──────────────────────────────────────
+function listenFollowersOnly() {
+    db.ref('boardState/hostSettings/followersOnly').on('value', snap => {
+        const val = snap.val();
+        log(`Firebase followersOnly received: ${val}`);
+        if (val === null) return; // not yet written
+        const cb = document.getElementById('followers-only');
+        if (!cb) return;
+        // Only sync checkbox value — never disconnect Twitch or change interactivity from a remote change
+        if (cb.checked !== val) {
+            log(`Syncing checkbox to ${val}`);
+            cb.checked = val;
+        }
+    });
+}
+
 // ── MULTI-HOST: Shared Timer Settings ────────────────────────────────────────
 function listenTimerSettings() {
     db.ref('boardState/hostSettings').on('value', snap => {
