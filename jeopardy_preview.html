@@ -131,9 +131,13 @@
     </div>
     <div id="firstq-overlay">
         <div class="firstq-category" id="firstq-category"></div>
-        <div class="firstq-bar"></div>
+        <div class="firstq-bar" id="firstq-bar"></div>
         <div class="firstq-question" id="firstq-question"></div>
         <div class="ov-ar-source" id="firstq-source" style="display:none;"></div>
+        <!-- answer reveal (shown when status === 'revealed') -->
+        <div class="ov-ar-question" id="firstq-reveal-q" style="display:none;"></div>
+        <div class="ov-ar-label" id="firstq-reveal-label" style="display:none;">The answer was</div>
+        <div class="ov-ar-answer" id="firstq-reveal-a" style="display:none;"></div>
     </div>
     <div id="podium-overlay">
         <div class="podium-stage">
@@ -528,12 +532,25 @@ db.ref('boardState/activeScreen').on('value', snap => {
 });
 
 db.ref('boardState/firstQuestion').on('value', snap => {
-    const data = snap.val();
-    const catEl = document.getElementById('firstq-category');
-    const qEl   = document.getElementById('firstq-question');
-    if (catEl) catEl.textContent = (data && data.category) ? data.category : '';
-    if (qEl)   qEl.textContent   = (data && data.question)  ? data.question  : '';
-    const fqSrc = document.getElementById('firstq-source');
+    const data     = snap.val();
+    const revealed = data?.status === 'revealed';
+
+    const catEl  = document.getElementById('firstq-category');
+    const barEl  = document.getElementById('firstq-bar');
+    const qEl    = document.getElementById('firstq-question');
+    const revQ   = document.getElementById('firstq-reveal-q');
+    const revL   = document.getElementById('firstq-reveal-label');
+    const revA   = document.getElementById('firstq-reveal-a');
+    const fqSrc  = document.getElementById('firstq-source');
+
+    if (catEl) { catEl.style.display = revealed ? 'none' : ''; catEl.textContent = (!revealed && data?.category) ? data.category : ''; }
+    if (barEl)  barEl.style.display  = revealed ? 'none' : '';
+    if (qEl)   { qEl.style.display   = revealed ? 'none' : ''; qEl.textContent   = (!revealed && data?.question) ? data.question : ''; }
+
+    if (revQ)  { revQ.style.display  = revealed ? '' : 'none'; if (revealed) revQ.textContent = data?.question || ''; }
+    if (revL)    revL.style.display  = revealed ? '' : 'none';
+    if (revA)  { revA.style.display  = revealed ? '' : 'none'; if (revealed) revA.textContent = data?.answer   || ''; }
+
     if (fqSrc) {
         if (data && (data.src || data.url)) {
             fqSrc.textContent = data.src ? `Source: ${data.src}` : `Source: ${data.url}`;

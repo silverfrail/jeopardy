@@ -395,7 +395,6 @@
                 <div class="ptitle">
                     <span class="screen-toggle" onclick="setActiveScreen('splash')" title="Show splash screen on preview">
                         <span class="screen-toggle-track" id="screen-toggle-splash"></span>
-                        <span class="screen-toggle-label">LIVE</span>
                     </span>
                     Splash Screen
                     <button class="panel-toggle" onclick="togglePanel(this)" title="Collapse">▾</button>
@@ -420,7 +419,6 @@
                 <div class="ptitle">
                     <span class="screen-toggle" onclick="setActiveScreen('firstq')" title="Show first question on preview">
                         <span class="screen-toggle-track" id="screen-toggle-firstq"></span>
-                        <span class="screen-toggle-label">LIVE</span>
                     </span>
                     First Question
                     <button class="panel-toggle" onclick="togglePanel(this)" title="Collapse">▾</button>
@@ -451,30 +449,14 @@
                 <div class="ptitle">
                     <span class="screen-toggle" onclick="setActiveScreen('board')" title="Show live board on preview">
                         <span class="screen-toggle-track" id="screen-toggle-board"></span>
-                        <span class="screen-toggle-label">LIVE</span>
                     </span>
                     Live Board
                     <button class="panel-toggle" onclick="togglePanel(this)" title="Collapse">▾</button>
                 </div>
                 <div id="board-wrap"></div>
-            </div>
 
-            <!-- Podium -->
-            <div class="panel collapsed" id="podium-panel">
-                <div class="ptitle">
-                    <span class="screen-toggle" onclick="setActiveScreen('podium')" title="Show podium on preview">
-                        <span class="screen-toggle-track" id="screen-toggle-podium"></span>
-                        <span class="screen-toggle-label">LIVE</span>
-                    </span>
-                    Podium
-                    <button class="panel-toggle" onclick="togglePanel(this)" title="Expand">&#9658;</button>
-                </div>
-                <div style="color:var(--dim);font-size:0.8rem;padding:8px 0 4px;">Displays top 3 players. Flip to this screen when the game ends.</div>
-                <div id="podium-preview"></div>
-            </div>
-
-            <!-- Active Clue Panel (below board so grid doesn't shift on dismiss) -->
-            <div id="ac-panel">
+                <!-- Active Clue Panel -->
+                <div id="ac-panel">
 
                 <!-- Clue view (shown while clue is active) -->
                 <div id="clue-view">
@@ -536,9 +518,22 @@
 
             </div>
 
-        </div>
+            </div>
 
-        <!-- Sidebar -->
+            <!-- Podium -->
+            <div class="panel collapsed" id="podium-panel">
+                <div class="ptitle">
+                    <span class="screen-toggle" onclick="setActiveScreen('podium')" title="Show podium on preview">
+                        <span class="screen-toggle-track" id="screen-toggle-podium"></span>
+                    </span>
+                    Podium
+                    <button class="panel-toggle" onclick="togglePanel(this)" title="Expand">&#9658;</button>
+                </div>
+                <div style="color:var(--dim);font-size:0.8rem;padding:8px 0 4px;">Displays top 3 players. Flip to this screen when the game ends.</div>
+                <div id="podium-preview"></div>
+            </div>
+
+        </div>
         <div class="sidebar">
 
             <!-- Twitch -->
@@ -744,6 +739,7 @@ function setActiveScreen(screen) {
 
 function updateScreenToggles(screen) {
     currentScreen = screen;
+    renderBoard();
     const splashTrack = document.getElementById('screen-toggle-splash');
     const firstqTrack = document.getElementById('screen-toggle-firstq');
     const boardTrack  = document.getElementById('screen-toggle-board');
@@ -1441,7 +1437,13 @@ function listenPendingGuess() {
         pendingGuess = val || null;
         if (val) {
             if (currentScreen === 'firstq' && firstQuestionData) {
-                showFQPending(val);
+                if (lastCorrectAnswerer) {
+                    // First Q already answered — drop stale guess and clean up Firebase
+                    pendingGuess = null;
+                    db.ref('boardState/hostSettings').update({ pendingGuess: null, guessQueue: null, wrongGuessers: null });
+                } else {
+                    showFQPending(val);
+                }
             } else {
                 showPending(val);
             }
@@ -1952,6 +1954,7 @@ function judgeGuess(correct) {
 
 // ── FIRST QUESTION ────────────────────────────────────────────────────────────
 async function handleFirstQuestionGuess(username, tags, guessText) {
+    if (lastCorrectAnswerer) return;  // already answered correctly — no more guesses accepted
     if (wrongGuessers.has(username.toLowerCase())) return;
     if (guessQueue.some(g => g.username.toLowerCase() === username.toLowerCase())) return;
 
@@ -2005,15 +2008,20 @@ function showFQPending({ username, text }) {
 function judgeFirstQuestion(correct) {
     if (!pendingGuess || !firstQuestionData) return;
     const guess = { ...pendingGuess };
+    // Set optimistically before async transaction to block new incoming guesses immediately
+    if (correct) lastCorrectAnswerer = guess.username;
     db.ref('boardState/hostSettings/pendingGuess').transaction(current => {
         if (current === null) return;
         return null;
     }).then(result => {
-        if (!result.committed) return;
+        if (!result.committed) {
+            if (correct) lastCorrectAnswerer = null; // revert if transaction didn't commit
+            return;
+        }
         pendingGuess = null;
         if (correct) {
-            lastCorrectAnswerer = guess.username;
             db.ref('boardState/hostSettings/lastCorrectAnswerer').set(guess.username);
+            db.ref('boardState/firstQuestion').update({ status: 'revealed' });
             log(`✓ ${guess.username} correct on First Question! lastCorrectAnswerer set. No points awarded.`);
             wrongGuessers = new Set();
             guessQueue    = [];
@@ -2234,7 +2242,7 @@ function renderBoard() {
     const numCats  = categories.length;
     const numRows  = tiles.length / numCats;
     const activeId = (activeClue?.status === 'active' || activeClue?.status === 'daily-double' || activeClue?.status === 'daily-double-active') ? activeClue.tileId : null;
-    const locked   = !!activeClue && activeClue.status !== 'inactive';
+    const locked   = (!!activeClue && activeClue.status !== 'inactive') || currentScreen === 'firstq';
     const wrap     = document.getElementById('board-wrap');
 
     wrap.style.gridTemplateColumns = `repeat(${numCats}, 1fr)`;
