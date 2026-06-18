@@ -377,7 +377,7 @@
     <div class="hdr">
         <h1>Jeopardy! Host</h1>
         <span><span class="dot" id="fb-dot"></span><span class="stat-label">Firebase</span></span>
-        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v51</span>
+        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v52</span>
         <span><span class="dot" id="tw-dot"></span><span class="stat-label">Twitch</span></span>
         <button class="btn-sec btn-sm" onclick="triggerOBSRefresh()">⚡ OBS</button>
         <button class="btn-sec btn-sm" onclick="openSettings()">⚙️ Settings</button>
@@ -830,12 +830,29 @@ function togglePanel(btn) {
     const collapsed = panel.classList.toggle('collapsed');
     btn.textContent = collapsed ? '▸' : '▾';
     btn.title = collapsed ? 'Expand' : 'Collapse';
+    const key = panel.id || panel.dataset.panelId;
+    if (key) localStorage.setItem('panel_collapsed_' + key, collapsed ? '1' : '0');
     if (!collapsed && panel.id === 'host-chat-panel') {
         document.getElementById('host-chat-unread').style.display = 'none';
         // Scroll to latest message when expanding
         const msgs = document.getElementById('host-chat-msgs');
         requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
     }
+}
+
+// ── PANEL STATE PERSISTENCE ─────────────────────────────────────────────────
+function restorePanelStates() {
+    document.querySelectorAll('.panel, .log-panel').forEach(panel => {
+        const key = panel.id || panel.dataset.panelId;
+        if (!key) return;
+        const saved = localStorage.getItem('panel_collapsed_' + key);
+        if (saved === null) return;
+        const shouldCollapse = saved === '1';
+        const isCollapsed = panel.classList.contains('collapsed');
+        if (shouldCollapse === isCollapsed) return;
+        const btn = panel.querySelector('.panel-toggle');
+        if (btn) togglePanel(btn);
+    });
 }
 
 // Clicking anywhere on a ptitle (except interactive children) toggles the panel
@@ -1009,6 +1026,7 @@ function initDashboard() {
     listenCategorySubmissions();   // sync viewer category suggestions
     listenHostChat();               // sync host-to-host chat
     initPanelDrag();                // sidebar drag-and-drop reordering
+    restorePanelStates();           // restore collapsed/expanded state per user
     listenActiveScreen();           // sync preview screen selection
     listenFirstQuestion();          // restore first question from Firebase on load
     listenSplashImage();            // sync custom splash image
