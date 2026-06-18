@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -377,7 +377,7 @@
     <div class="hdr">
         <h1>Jeopardy! Host</h1>
         <span><span class="dot" id="fb-dot"></span><span class="stat-label">Firebase</span></span>
-        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v49</span>
+        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v50</span>
         <span><span class="dot" id="tw-dot"></span><span class="stat-label">Twitch</span></span>
         <button class="btn-sec btn-sm" onclick="triggerOBSRefresh()">⚡ OBS</button>
         <button class="btn-sec btn-sm" onclick="openSettings()">⚙️ Settings</button>
@@ -1123,7 +1123,18 @@ async function setupTwitch(loginName) {
     if (twitchLogin) localStorage.setItem('twitch_login', twitchLogin);
     // Reconnect IRC as authenticated so we can send chat replies when needed.
     initTMI();
-    updateChatStatus(twitchLogin, isChatPrimary ? SESSION_ID : ''); // refresh label now that we're connected
+    // Claim or update chat now that we have a real username.
+    chatPrimaryRef.transaction(current => {
+        if (!current || current === null || typeof current === 'string' || current.sessionId === SESSION_ID) {
+            return { sessionId: SESSION_ID, username: twitchLogin };
+        }
+        return current; // someone else owns it — don't steal
+    }).then(result => {
+        const val = result.snapshot.val();
+        isChatPrimary = (val?.sessionId === SESSION_ID);
+        updateChatStatus(val?.username || '', val?.sessionId || '');
+        if (isChatPrimary) log(`This dashboard (@${twitchLogin}) has chat.`);
+    });
     refreshFollowersOnlyState();
     log('Twitch session active.');
 }
@@ -1136,6 +1147,7 @@ function clearTwitchSession() {
 }
 
 function handleTwitchExpiry() {
+    if (isChatPrimary) { chatPrimaryRef.set(null); isChatPrimary = false; }
     clearTwitchSession();
     document.getElementById('tw-connect').style.display   = '';
     document.getElementById('tw-connected').style.display = 'none';
@@ -1183,22 +1195,24 @@ function updateFollowersOnly() {
 }
 
 function disconnectTwitch() {
-    // Only clear OAuth state — keep IRC WebSocket alive so chat still works without follower checks
-    const cachedLogin = twitchLogin; // capture before clearTwitchSession wipes it
+    // Release the chat claim so another connected dashboard can pick it up
+    if (isChatPrimary) {
+        chatPrimaryRef.set(null);
+        isChatPrimary = false;
+    }
     clearTwitchSession();
     document.getElementById('tw-connect').style.display   = '';
     document.getElementById('tw-connected').style.display = 'none';
     document.getElementById('tw-dot').classList.remove('on');
-    // Refresh chat status so the warning fires if this dashboard still owns chat
-    updateChatStatus(cachedLogin || '', isChatPrimary ? SESSION_ID : '');
+    updateChatStatus('', '');
     refreshFollowersOnlyState();
     log('Twitch disconnected.');
 }
 
 // ── MULTI-HOST: Chat Active ──────────────────────────────────────────────────
 // Firebase node: boardState/hostSettings/chatPrimary = { sessionId, username } | null
-// First dashboard to open claims it. Others can claim it at any time.
-// Released on page unload. All dashboards see who owns it by username.
+// Chat is claimed on Twitch connect, released on disconnect/expiry.
+// All dashboards observe who owns it by username.
 
 function showTwWarn(msg) {
     const el = document.getElementById('tw-warn-banner');
@@ -1271,43 +1285,13 @@ function releaseChatPrimary() {
 function listenChatPrimary() {
     chatPrimaryRef.on('value', snap => {
         const data = snap.val();
+        if (typeof data === 'string') { chatPrimaryRef.set(null); return; }
         if (!data) {
-            // Nobody owns it — claim automatically
-            chatPrimaryRef.transaction(current => {
-                if (current === null) return { sessionId: SESSION_ID, username: twitchLogin || '' };
-                return current;
-            }).then(result => {
-                const val = result.snapshot.val();
-                if (val?.sessionId === SESSION_ID) {
-                    isChatPrimary = true;
-                    log(`This dashboard (@${twitchLogin || 'unconnected'}) auto-claimed chat.`);
-                    if (!twitchToken || !twitchLogin) {
-                        showTwWarn('\u26a0\ufe0f You have chat but Twitch is not connected. Connect your Twitch account to enable follower checks and chat replies.');
-                    }
-                } else {
-                    isChatPrimary = false;
-                }
-                updateChatStatus(val?.username || '', val?.sessionId || '');
-            });
+            isChatPrimary = false;
+            updateChatStatus('', '');
         } else {
             isChatPrimary = (data.sessionId === SESSION_ID);
             updateChatStatus(data.username || '', data.sessionId || '');
-        }
-    });
-}
-
-// ── MULTI-HOST: Shared Followers-Only ──────────────────────────────────────
-function listenFollowersOnly() {
-    db.ref('boardState/hostSettings/followersOnly').on('value', snap => {
-        const val = snap.val();
-        log(`Firebase followersOnly received: ${val}`);
-        if (val === null) return; // not yet written
-        const cb = document.getElementById('followers-only');
-        if (!cb) return;
-        // Only sync checkbox value — never disconnect Twitch or change interactivity from a remote change
-        if (cb.checked !== val) {
-            log(`Syncing checkbox to ${val}`);
-            cb.checked = val;
         }
     });
 }
