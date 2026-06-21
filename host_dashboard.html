@@ -377,7 +377,7 @@
     <div class="hdr">
         <h1>Jeopardy! Host</h1>
         <span><span class="dot" id="fb-dot"></span><span class="stat-label">Firebase</span></span>
-        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v52</span>
+        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v53</span>
         <span><span class="dot" id="tw-dot"></span><span class="stat-label">Twitch</span></span>
         <button class="btn-sec btn-sm" onclick="triggerOBSRefresh()">⚡ OBS</button>
         <button class="btn-sec btn-sm" onclick="openSettings()">⚙️ Settings</button>
@@ -1944,7 +1944,7 @@ function judgeGuess(correct) {
             clueScorers.push({ username: guess.username, delta: scoreAmt, wager: isDD });
             db.ref('boardState/hostSettings/lastCorrectAnswerer').set(guess.username);
             log(`✓ ${guess.username} correct on ${clueContext}! +$${scoreAmt}`);
-            dismissClue('correct');
+            dismissClue('correct', guess.username);
         } else {
             if (isDD) {
                 const deduct = penaltyDD ? scoreAmt : 0;
@@ -2039,7 +2039,7 @@ function judgeFirstQuestion(correct) {
         pendingGuess = null;
         if (correct) {
             db.ref('boardState/hostSettings/lastCorrectAnswerer').set(guess.username);
-            db.ref('boardState/firstQuestion').update({ status: 'revealed' });
+            db.ref('boardState/firstQuestion').update({ status: 'revealed', correctAnswerer: guess.username });
             log(`✓ ${guess.username} correct on First Question! lastCorrectAnswerer set. No points awarded.`);
             wrongGuessers = new Set();
             guessQueue    = [];
@@ -2122,7 +2122,7 @@ function restoreBoardFirstQuestion() {
     log('First Question restored from board.');
 }
 
-function dismissClue(reason) {
+function dismissClue(reason, guesser = null) {
     // DD timer expiry: player never guessed — deduct wager if DD penalties are on
     if (reason === 'timer' && activeClue?.status === 'daily-double-active' && activeClue.ddWager && penaltyDD) {
         adjustScore(activeClue.ddPlayer, -activeClue.ddWager);
@@ -2138,10 +2138,10 @@ function dismissClue(reason) {
     document.getElementById('pg-panel').style.display = 'none';
     updateQueueIndicator();
     if (reason === 'manual') log('Clue manually dismissed.');
-    revealAnswer();
+    revealAnswer(guesser);
 }
 
-function revealAnswer() {
+function revealAnswer(guesser = null) {
     const answer = activeClue?.answer;
     const tileId = activeClue?.tileId;
     // Write per-tile result to Firebase for the preview board
@@ -2163,7 +2163,8 @@ function revealAnswer() {
         category: activeClue.category || '',
         value:    activeClue.value    || 0,
         src:      activeClue.src      || '',
-        url:      activeClue.url      || ''
+        url:      activeClue.url      || '',
+        correctAnswerer: guesser || ''
     });
 }
 
