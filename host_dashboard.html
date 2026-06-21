@@ -368,6 +368,33 @@
     </div>
 </div>
 
+<!-- ── Review / Correct Guesser Modal ── -->
+<div class="modal" id="review-modal">
+    <div class="mbox" style="max-width:480px;">
+        <h3>&#128295; Correct Guesser Override</h3>
+        <div id="rv-context" style="background:#0d0d1a;border:1px solid var(--border);border-radius:5px;padding:10px 12px;margin-bottom:12px;font-size:0.85rem;"></div>
+        <div id="rv-scorers" style="margin-bottom:12px;"></div>
+        <div style="border-top:1px solid var(--border);padding-top:12px;">
+            <label style="font-size:0.8rem;color:var(--dim);display:block;margin-bottom:6px;">Assign correct guesser:</label>
+            <div style="display:flex;gap:8px;">
+                <input type="text" id="rv-username-in" placeholder="username" autocomplete="off" style="flex:1;background:#0d0d1a;border:1px solid var(--border);color:#fff;padding:6px 9px;border-radius:4px;font-size:0.9rem;font-family:inherit;">
+                <button onclick="previewCorrection()">Preview</button>
+            </div>
+        </div>
+        <div id="rv-preview-panel" style="display:none;margin-top:12px;background:#0d1a0d;border:1px solid var(--green);border-radius:5px;padding:10px 12px;">
+            <div style="font-size:0.75rem;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.06em;">Changes that will be applied:</div>
+            <div id="rv-preview-lines" style="font-size:0.88rem;line-height:2;"></div>
+            <div class="mrow" style="margin-top:12px;">
+                <button class="btn-ok" onclick="applyCorrection()">&#10003; Confirm</button>
+                <button class="btn-sec" onclick="document.getElementById('rv-preview-panel').style.display='none'">&#8592; Back</button>
+            </div>
+        </div>
+        <div class="mrow" style="margin-top:16px;">
+            <button class="btn-sec" onclick="closeModal('review-modal')">Close</button>
+        </div>
+    </div>
+</div>
+
 <input type="file" id="file-in" style="display:none" accept=".json" onchange="importFile(this.files)">
 
 <!-- ── Main UI ── -->
@@ -377,10 +404,15 @@
     <div class="hdr">
         <h1>Jeopardy! Host</h1>
         <span><span class="dot" id="fb-dot"></span><span class="stat-label">Firebase</span></span>
-        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v53</span>
+        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v54</span>
         <span><span class="dot" id="tw-dot"></span><span class="stat-label">Twitch</span></span>
         <button class="btn-sec btn-sm" onclick="triggerOBSRefresh()">⚡ OBS</button>
         <button class="btn-sec btn-sm" onclick="openSettings()">⚙️ Settings</button>
+        <span style="display:flex;align-items:center;gap:5px;">
+            <span style="font-size:0.75rem;color:var(--dim);">DD Player:</span>
+            <input type="text" id="hdr-lca-in" placeholder="—" autocomplete="off" style="width:110px;background:#0d0d1a;border:1px solid var(--border);color:#fff;padding:2px 7px;border-radius:4px;font-size:0.78rem;font-family:inherit;">
+            <button class="btn-sec btn-sm" onclick="saveLCA()">Save</button>
+        </span>
 
     </div>
 
@@ -704,6 +736,8 @@ let clueScorers         = [];    // per-clue scorer records; written to tileResu
 let lastClueStatus      = null;  // tracks previous activeClue status to detect DD→active transition
 let penaltyRegular      = true;  // deduct points for wrong regular clue answers
 let penaltyDD           = true;  // deduct points for wrong DD answers
+let reviewTile             = null;  // tile currently open in review modal
+let pendingCorrectionApply = null;  // closure to call on correction confirm
 
 // Handle implicit grant callback (token in URL hash) before anything else
 const oauthReady = handleOAuthCallback();
@@ -1384,6 +1418,7 @@ function listenTimerSettings() {
             if (lastCorrectAnswerer === null && incoming !== null) {
                 lastCorrectAnswerer = incoming;
                 log(`Restored last correct answerer: ${lastCorrectAnswerer}`);
+                syncLCAInput();
                 changed = true;
             }
         }
@@ -1943,6 +1978,7 @@ function judgeGuess(correct) {
             adjustScore(guess.username, scoreAmt);
             clueScorers.push({ username: guess.username, delta: scoreAmt, wager: isDD });
             db.ref('boardState/hostSettings/lastCorrectAnswerer').set(guess.username);
+            syncLCAInput();
             log(`✓ ${guess.username} correct on ${clueContext}! +$${scoreAmt}`);
             dismissClue('correct', guess.username);
         } else {
@@ -2028,6 +2064,7 @@ function judgeFirstQuestion(correct) {
     const guess = { ...pendingGuess };
     // Set optimistically before async transaction to block new incoming guesses immediately
     if (correct) lastCorrectAnswerer = guess.username;
+    syncLCAInput();
     db.ref('boardState/hostSettings/pendingGuess').transaction(current => {
         if (current === null) return;
         return null;
@@ -2514,6 +2551,7 @@ function commitUpload(resetScores) {
     if (!pendingUploadTiles) return;
     // Always clear lastCorrectAnswerer — First Question will set it at the start of every round
     lastCorrectAnswerer = null;
+    syncLCAInput();
     db.ref('boardState/hostSettings/lastCorrectAnswerer').set(null);
     // Write tiles to Firebase without DD flags — DDs are assigned in applySettings
     const tiles = pendingUploadTiles.map(t => { const c = { ...t }; delete c.dd; return c; });
@@ -2597,6 +2635,7 @@ function importFile(files) {
 function resetGameState() {
     // Always clear lastCorrectAnswerer — First Question will set it at the start of every round
     lastCorrectAnswerer = null;
+    syncLCAInput();
     db.ref('boardState/hostSettings/lastCorrectAnswerer').set(null);
     // Reset tiles, scores, log, and active clue; unlock DD settings; keep modal open
     gameStarted   = false;
@@ -2704,6 +2743,100 @@ function reviewClue(tile) {
         question: tile.question || ''
     });
     log(`Reviewing: [${tile.category} $${tile.value}] ${tile.question}`);
+    reviewTile = tile;
+    pendingCorrectionApply = null;
+    document.getElementById('rv-username-in').value = '';
+    document.getElementById('rv-preview-panel').style.display = 'none';
+    db.ref(`boardState/tileResults/${tile.id}`).once('value').then(snap => {
+        populateReviewModal(tile, snap.val() || {});
+    });
+    openModal('review-modal');
+}
+
+function populateReviewModal(tile, results) {
+    const scorers = results.scorers || [];
+    const correct = scorers.find(s => s.delta > 0);
+    const wrong   = scorers.filter(s => s.delta <= 0);
+
+    document.getElementById('rv-context').innerHTML =
+        `<div style="color:var(--dim);font-size:0.78rem;margin-bottom:4px;">${escapeHtml(tile.category)} &middot; $${tile.value}</div>` +
+        `<div style="color:#fff;margin-bottom:5px;">${escapeHtml(tile.question)}</div>` +
+        `<div style="color:var(--green);font-size:0.82rem;">Answer: ${escapeHtml(tile.answer || '—')}</div>`;
+
+    let html = '<div style="font-size:0.78rem;color:var(--dim);margin-bottom:6px;">Recorded guessers:</div>';
+    if (!correct && !wrong.length) {
+        html += '<div style="color:var(--dim);font-size:0.82rem;">None recorded.</div>';
+    }
+    if (correct) {
+        html += `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">` +
+            `<span style="color:var(--green);">&#10003;</span><strong>${escapeHtml(correct.username)}</strong>` +
+            `<span style="color:var(--green);font-size:0.85rem;">+$${correct.delta}</span>` +
+            `<button class="btn-sec btn-sm rv-use-btn" data-username="${escapeHtml(correct.username)}">Use</button></div>`;
+    }
+    wrong.forEach(w => {
+        const dStr   = w.delta < 0 ? `-$${Math.abs(w.delta)}` : 'no penalty';
+        const dColor = w.delta < 0 ? '#ffaa44' : 'var(--dim)';
+        html += `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">` +
+            `<span style="color:#ffaa44;">&#10007;</span><strong>${escapeHtml(w.username)}</strong>` +
+            `<span style="color:${dColor};font-size:0.85rem;">${dStr}</span>` +
+            `<button class="btn-sec btn-sm rv-use-btn" data-username="${escapeHtml(w.username)}">Use</button></div>`;
+    });
+    document.getElementById('rv-scorers').innerHTML = html;
+    document.getElementById('rv-scorers').onclick = e => {
+        const btn = e.target.closest('.rv-use-btn');
+        if (btn) document.getElementById('rv-username-in').value = btn.dataset.username;
+    };
+    // Pre-fill: suggest the lone wrong guesser (most common correction scenario)
+    if (wrong.length === 1) document.getElementById('rv-username-in').value = wrong[0].username;
+}
+
+function previewCorrection() {
+    const newUser = (document.getElementById('rv-username-in')?.value || '').trim().toLowerCase();
+    if (!newUser) { alert('Enter a username.'); return; }
+    if (!reviewTile) return;
+    const tile = reviewTile;
+    db.ref(`boardState/tileResults/${tile.id}`).once('value').then(snap => {
+        const scorers    = snap.val()?.scorers || [];
+        const oldCorrect = scorers.find(s => s.delta > 0);
+        const wasWrong   = scorers.find(s => s.username.toLowerCase() === newUser.toLowerCase() && s.delta <= 0);
+        if (oldCorrect?.username.toLowerCase() === newUser.toLowerCase()) {
+            alert(`${newUser} is already the correct guesser.`); return;
+        }
+        const lines = [];
+        lines.push(`Mark <strong>${escapeHtml(newUser)}</strong> as the correct guesser`);
+        if (oldCorrect) lines.push(`Reverse <strong>${escapeHtml(oldCorrect.username)}</strong>'s +$${oldCorrect.delta} gain`);
+        if (wasWrong?.delta < 0) lines.push(`Reverse <strong>${escapeHtml(newUser)}</strong>'s -$${Math.abs(wasWrong.delta)} penalty`);
+        lines.push(`Award <strong>${escapeHtml(newUser)}</strong> +$${tile.value}`);
+        document.getElementById('rv-preview-lines').innerHTML = lines.map(l => `<div style="padding:2px 0;">→ ${l}</div>`).join('');
+        document.getElementById('rv-preview-panel').style.display = '';
+        pendingCorrectionApply = () => {
+            if (oldCorrect) adjustScore(oldCorrect.username, -oldCorrect.delta);
+            if (wasWrong?.delta < 0) adjustScore(newUser, Math.abs(wasWrong.delta));
+            adjustScore(newUser, tile.value);
+            const newScorers = scorers
+                .filter(s => s.delta <= 0 && s.username.toLowerCase() !== newUser.toLowerCase())
+                .concat([{ username: newUser, delta: tile.value, wager: false }]);
+            db.ref(`boardState/tileResults/${tile.id}`).update({ scorers: newScorers });
+            log(`✏️ Corrected: ${newUser} is now correct on [${tile.category} $${tile.value}]`);
+            closeModal('review-modal');
+        };
+    });
+}
+
+function applyCorrection() {
+    if (pendingCorrectionApply) pendingCorrectionApply();
+}
+
+function syncLCAInput() {
+    const el = document.getElementById('hdr-lca-in');
+    if (el && el !== document.activeElement) el.value = lastCorrectAnswerer || '';
+}
+
+function saveLCA() {
+    const val = (document.getElementById('hdr-lca-in')?.value || '').trim();
+    lastCorrectAnswerer = val || null;
+    db.ref('boardState/hostSettings/lastCorrectAnswerer').set(val || null);
+    log(`DD Player manually set to: ${val || '(cleared)'}`);
 }
 
 function triggerOBSRefresh() {
