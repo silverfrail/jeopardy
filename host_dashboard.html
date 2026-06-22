@@ -262,7 +262,7 @@
     <div class="mbox">
         <h3>⚙️ Settings</h3>
         <div id="stg-clue-warn" class="cfg-warning" style="display:none">⏸️ A clue is active — timer settings will apply to the next clue.</div>
-        <div id="stg-dd-lock-warn" class="cfg-warning" style="display:none">🔒 Daily Double settings are locked once the first clue is selected.</div>
+        <div id="stg-dd-lock-warn" class="cfg-warning" style="display:none">🔒 Power Play settings are locked once the first clue is selected.</div>
 
         <div class="cfg-section">
             <div class="cfg-section-title">Countdown Timer</div>
@@ -294,24 +294,24 @@
             <div class="cfg-row" style="margin-top:6px;">
                 <div class="cfg-row-main">
                     <input type="checkbox" id="stg-penalty-dd" checked>
-                    <label for="stg-penalty-dd">Deduct points for wrong answers on Daily Doubles</label>
+                    <label for="stg-penalty-dd">Deduct points for wrong answers on Power Plays</label>
                 </div>
-                <span class="tip" data-tip="When enabled, a wrong Daily Double answer deducts the wagered amount from the player's score.">?</span>
+                <span class="tip" data-tip="When enabled, a wrong Power Play answer deducts the wagered amount from the player's score.">?</span>
             </div>
         </div>
 
         <div class="cfg-section">
-            <div class="cfg-section-title">Daily Doubles</div>
+            <div class="cfg-section-title">Power Plays</div>
             <div class="cfg-row">
                 <div class="cfg-row-main">
                     <input type="checkbox" id="stg-dd-on" onchange="document.getElementById('stg-dd-opts').style.display=this.checked?'block':'none'">
-                    <label for="stg-dd-on">Enable Daily Doubles</label>
+                    <label for="stg-dd-on">Enable Power Plays</label>
                 </div>
-                <span class="tip" data-tip="Randomly assigns Daily Double tiles. The last correct answerer gets to wager before the clue is revealed.">?</span>
+                <span class="tip" data-tip="Randomly assigns Power Play tiles. The last correct answerer gets to wager before the clue is revealed.">?</span>
             </div>
             <div id="stg-dd-opts" style="display:none;margin-top:8px;">
                 <div class="cfg-sub-row">
-                    <label for="stg-dd-count">Number of Daily Doubles</label>
+                    <label for="stg-dd-count">Number of Power Plays</label>
                     <div style="display:flex;align-items:center;gap:8px;">
                         <input type="number" id="stg-dd-count" min="1" max="5" value="1">
                         <span style="font-size:0.78rem;color:var(--dim);">1 – 5</span>
@@ -320,7 +320,7 @@
                 <div class="cfg-sub-row" style="margin-top:6px;">
                     <div style="display:flex;align-items:center;gap:6px;">
                         <label for="stg-dd-wager-timeout">Wager timeout (seconds)</label>
-                        <span class="tip" data-tip="How long the Daily Double player has to type !wager in chat. If time runs out before they wager, the clue proceeds as a normal question with no wager.">?</span>
+                        <span class="tip" data-tip="How long the Power Play player has to type !wager in chat. If time runs out before they wager, the clue proceeds as a normal question with no wager.">?</span>
                     </div>
                     <div style="display:flex;align-items:center;gap:8px;">
                         <input type="number" id="stg-dd-wager-timeout" min="10" max="120" value="60">
@@ -404,7 +404,7 @@
     <div class="hdr">
         <h1>Jeopardy! Host</h1>
         <span><span class="dot" id="fb-dot"></span><span class="stat-label">Firebase</span></span>
-        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v58</span>
+        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v59</span>
         <span><span class="dot" id="tw-dot"></span><span class="stat-label">Twitch</span></span>
         <button class="btn-sec btn-sm" onclick="triggerOBSRefresh()">⚡ OBS</button>
         <button class="btn-sec btn-sm" onclick="openSettings()">⚙️ Settings</button>
@@ -540,7 +540,7 @@
                         <button class="btn-sec btn-sm" onclick="forceDDSkip()">Skip Wager</button>
                     </div>
                     <div style="background:#1a0a00;border:2px solid var(--yellow);border-radius:6px;padding:12px;margin-bottom:10px;text-align:center;">
-                        <div style="font-size:1.3rem;font-weight:900;color:var(--yellow);letter-spacing:0.08em;">⭐ DAILY DOUBLE ⭐</div>
+                        <div style="font-size:1.3rem;font-weight:900;color:var(--yellow);letter-spacing:0.08em;">⭐ POWER PLAY ⭐</div>
                         <div style="font-size:0.82rem;color:var(--dim);margin-top:6px;">Waiting for <strong id="dd-player" style="color:#fff;"></strong> to wager in chat</div>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:space-between;font-size:0.8rem;color:var(--dim);">
@@ -2272,7 +2272,7 @@ function processDDWager(username, amtStr) {
         return;
     }
     clearWagerTimer();
-    log(`${username} wagered $${amt} on Daily Double!`);
+    log(`${username} wagered $${amt} on Power Play!`);
     db.ref('activeClue').set({
         status: 'daily-double-active',
         tileId: activeClue.tileId,
@@ -2417,7 +2417,7 @@ function initListeners() {
                 clueScorers = []; // reset scorer list for new DD
                 startWagerTimer(data.ddPlayer, data.ddWagerTimeout);
                 const lim = calcWagerLimits(data.ddPlayer || '', data.value);
-                sendChatMessage(`@${data.ddPlayer} You hit a Daily Double! Type !wager [amount]. Min: $${lim.min}, Max: $${lim.max}. You have ${data.ddWagerTimeout} seconds!`);
+                sendChatMessage(`@${data.ddPlayer} You hit a Power Play! Type !wager [amount]. Min: $${lim.min}, Max: $${lim.max}. You have ${data.ddWagerTimeout} seconds!`);
             }
         } else {
             activeClue = data;
@@ -2732,14 +2732,14 @@ function applySettings() {
                     const pick = Math.floor(Math.random() * pool.length);
                     clean[pool.splice(pick, 1)[0]].dd = true;
                 }
-                log(`Daily Doubles assigned: ${n} tile(s).`);
+                log(`Power Plays assigned: ${n} tile(s).`);
             }
             db.ref('boardState/tiles').set(clean);
         });
     }
 
     closeModal('settings-modal');
-    log(`Settings saved. Timer: ${timerEnabled ? timerSeconds + 's per clue' : 'off'}. Daily Doubles: ${ddEnabled ? ddCount + ' per board' : 'off'}. Guess command: ${guessCommand}.`);
+    log(`Settings saved. Timer: ${timerEnabled ? timerSeconds + 's per clue' : 'off'}. Power Plays: ${ddEnabled ? ddCount + ' per board' : 'off'}. Guess command: ${guessCommand}.`);
 }
 
 
