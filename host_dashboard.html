@@ -276,8 +276,8 @@
             <div id="stg-timer-opts" class="cfg-sub-row" style="display:none;">
                 <label for="stg-timer-secs">Seconds per clue</label>
                 <div style="display:flex;align-items:center;gap:8px;">
-                    <input type="number" id="stg-timer-secs" min="5" max="30" value="20">
-                    <span style="font-size:0.78rem;color:var(--dim);">5 – 30</span>
+                    <input type="number" id="stg-timer-secs" min="5" max="45" value="20">
+                    <span style="font-size:0.78rem;color:var(--dim);">5 – 45</span>
                 </div>
             </div>
         </div>
@@ -404,7 +404,7 @@
     <div class="hdr">
         <h1>Jeopardy! Host</h1>
         <span><span class="dot" id="fb-dot"></span><span class="stat-label">Firebase</span></span>
-        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v61</span>
+        <span style="font-size:0.72rem;color:var(--dim);opacity:0.7;">v62</span>
         <span><span class="dot" id="tw-dot"></span><span class="stat-label">Twitch</span></span>
         <button class="btn-sec btn-sm" onclick="triggerOBSRefresh()">⚡ OBS</button>
         <button class="btn-sec btn-sm" onclick="openSettings()">⚙️ Settings</button>
@@ -696,7 +696,7 @@ let tmiRetryDelay = 2000;       // exponential backoff delay for IRC reconnects 
 
 // ── SETTINGS (persisted across sessions) ─────────────────────────────────────
 let timerEnabled    = localStorage.getItem('cfg_timer_on')   === '1';
-        let timerSeconds    = Math.min(30, Math.max(5, parseInt(localStorage.getItem('cfg_timer_secs') || '20', 10)));
+        let timerSeconds    = Math.min(45, Math.max(5, parseInt(localStorage.getItem('cfg_timer_secs') || '20', 10)));
         let guessCommand    = localStorage.getItem('cfg_guess_cmd') || '!guess';
         let tickerMessages  = JSON.parse(localStorage.getItem('cfg_ticker_msgs') || '[]');
         let tickerInterval  = Math.max(2, parseInt(localStorage.getItem('cfg_ticker_secs') || '5', 10));
@@ -2470,15 +2470,26 @@ function initListeners() {
                 : '<div style="color:var(--dim);font-size:0.8rem;">No scores yet.</div>';
         }
         const roster = document.getElementById('roster');
-        roster.innerHTML = '';
 
-        if (!sorted.length) {
+        if (!Object.keys(scores).length) {
             roster.innerHTML = '<div style="color:var(--dim);font-size:0.82rem;">No players yet.</div>';
             return;
         }
 
-        sorted.forEach(([name, score]) => {
-            const d        = document.createElement('div'); d.className = 'p-item';
+        // Remove the "no players" placeholder if present
+        if (roster.querySelector('[data-placeholder]')) roster.innerHTML = '';
+
+        // Update scores in-place for existing rows; append rows for new players
+        Object.entries(scores).forEach(([name, score]) => {
+            let row = roster.querySelector(`.p-item[data-player="${CSS.escape(name)}"]`);
+            if (row) {
+                // Just update the score span — preserve input value and button positions
+                const sc = row.querySelector('.p-score');
+                if (sc) sc.textContent = `$${Number(score).toLocaleString()}`;
+                return;
+            }
+            // New player — build and append a row
+            const d        = document.createElement('div'); d.className = 'p-item'; d.dataset.player = name;
             const nameSpan = document.createElement('span');
             const sc       = document.createElement('span'); sc.className = 'p-score';
             sc.textContent = `$${Number(score).toLocaleString()}`;
@@ -2491,12 +2502,17 @@ function initListeners() {
             amtIn.style.cssText = 'width:58px;background:#0d0d1a;border:1px solid var(--border);color:#fff;padding:2px 5px;border-radius:4px;font-size:0.8rem;font-family:inherit;text-align:center;';
             const plus   = document.createElement('button'); plus.className  = 'btn-ok btn-sm';  plus.textContent  = '+';
             const minus  = document.createElement('button'); minus.className = 'btn-red btn-sm'; minus.textContent = '−';
-            plus.onclick  = () => { const v = Math.abs(parseInt(amtIn.value, 10) || 0); if (v) adjustScore(name,  v); };
-            minus.onclick = () => { const v = Math.abs(parseInt(amtIn.value, 10) || 0); if (v) adjustScore(name, -v); };
+            plus.onclick  = () => { const v = Math.abs(parseInt(amtIn.value, 10) || 0); if (v) { adjustScore(name,  v); log(`✏️ Manual: +$${v} to ${name}`); } };
+            minus.onclick = () => { const v = Math.abs(parseInt(amtIn.value, 10) || 0); if (v) { adjustScore(name, -v); log(`✏️ Manual: -$${v} from ${name}`); } };
             adjDiv.appendChild(amtIn); adjDiv.appendChild(plus); adjDiv.appendChild(minus);
 
             d.appendChild(nameSpan); d.appendChild(adjDiv);
             roster.appendChild(d);
+        });
+
+        // Remove rows for players no longer in scores
+        roster.querySelectorAll('.p-item[data-player]').forEach(row => {
+            if (!(row.dataset.player in scores)) row.remove();
         });
     });
 
@@ -2583,8 +2599,7 @@ function commitUpload(resetScores) {
     lastCorrectAnswerer = null;
     lastCorrectTileId   = null;
     syncLCAInput();
-    db.ref('boardState/hostSettings/lastCorrectAnswerer').set(null);
-    db.ref('boardState/hostSettings/lastCorrectTileId').set(null);
+    db.ref('boardState/hostSettings').update({ gameStarted: false, lastCorrectAnswerer: null, lastCorrectTileId: null });
     // Write tiles to Firebase without DD flags — DDs are assigned in applySettings
     const tiles = pendingUploadTiles.map(t => { const c = { ...t }; delete c.dd; return c; });
     db.ref('boardState/categories').set(pendingUploadCategories);
@@ -2669,8 +2684,6 @@ function resetGameState() {
     lastCorrectAnswerer = null;
     lastCorrectTileId   = null;
     syncLCAInput();
-    db.ref('boardState/hostSettings/lastCorrectAnswerer').set(null);
-    db.ref('boardState/hostSettings/lastCorrectTileId').set(null);
     // Reset tiles, scores, log, and active clue; unlock DD settings; keep modal open
     gameStarted   = false;
     pendingGuess  = null;
@@ -2678,7 +2691,7 @@ function resetGameState() {
     guessQueue    = [];
     clearClueTimer();
     clearWagerTimer();
-    db.ref('boardState/hostSettings').update({ gameStarted: false, pendingGuess: null, guessQueue: null, wrongGuessers: null });
+    db.ref('boardState/hostSettings').update({ gameStarted: false, lastCorrectAnswerer: null, lastCorrectTileId: null, pendingGuess: null, guessQueue: null, wrongGuessers: null });
     db.ref('boardState/tiles').once('value', snap => {
         const tiles = snap.val();
         if (tiles) tiles.forEach((t, i) => {
@@ -2726,7 +2739,7 @@ function openSettings() {
 
 function applySettings() {
     timerEnabled   = document.getElementById('stg-timer-on').checked;
-    timerSeconds   = Math.min(30, Math.max(5, parseInt(document.getElementById('stg-timer-secs').value, 10) || 20));
+    timerSeconds   = Math.min(45, Math.max(5, parseInt(document.getElementById('stg-timer-secs').value, 10) || 20));
     ddEnabled      = document.getElementById('stg-dd-on').checked;
     ddCount        = Math.min(5, Math.max(1, parseInt(document.getElementById('stg-dd-count').value, 10) || 1));
     ddWagerTimeout = Math.min(120, Math.max(10, parseInt(document.getElementById('stg-dd-wager-timeout').value, 10) || 60));
@@ -2750,11 +2763,15 @@ function applySettings() {
             // Strip any existing DD flags first
             let clean = tiles.map(t => { const c = { ...t }; delete c.dd; return c; });
             if (ddEnabled && ddCount > 0) {
-                const pool = clean.map((_, i) => i);
-                const n    = Math.min(ddCount, pool.length);
-                for (let i = 0; i < n; i++) {
-                    const pick = Math.floor(Math.random() * pool.length);
-                    clean[pool.splice(pick, 1)[0]].dd = true;
+                const numCats = boardData?.categories?.length || 1;
+                const numRows = Math.floor(clean.length / numCats);
+                // Build one pool entry per category (shuffled), pick one tile within each chosen category
+                const catOrder = Array.from({ length: numCats }, (_, i) => i).sort(() => Math.random() - 0.5);
+                const n = Math.min(ddCount, numCats);
+                for (let c = 0; c < n; c++) {
+                    const catIdx  = catOrder[c];
+                    const rowPick = Math.floor(Math.random() * numRows);
+                    clean[catIdx * numRows + rowPick].dd = true;
                 }
                 log(`Power Plays assigned: ${n} tile(s).`);
             }
@@ -2800,7 +2817,8 @@ function populateReviewModal(tile, results) {
     document.getElementById('rv-context').innerHTML =
         `<div style="color:var(--dim);font-size:0.78rem;margin-bottom:4px;">${escapeHtml(tile.category)} &middot; $${tile.value}</div>` +
         `<div style="color:#fff;margin-bottom:5px;">${escapeHtml(tile.question)}</div>` +
-        `<div style="color:var(--green);font-size:0.82rem;">Answer: ${escapeHtml(tile.answer || '—')}</div>`;
+        `<div style="color:var(--green);font-size:0.82rem;">Answer: ${escapeHtml(tile.answer || '—')}</div>` +
+        (tile.alt?.length ? `<div style="color:var(--dim);font-size:0.78rem;margin-top:3px;">Also acceptable: ${tile.alt.map(a => escapeHtml(a)).join(', ')}</div>` : '');
 
     let html = '<div style="font-size:0.78rem;color:var(--dim);margin-bottom:6px;">Recorded guessers:</div>';
     if (!correct && !wrong.length) {

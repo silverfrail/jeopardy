@@ -267,7 +267,7 @@ db.ref('settings').on('value', snap => {
     const s = snap.val();
     if (!s) return;
     pvTimerEnabled = !!s.timerEnabled;
-    pvTimerSeconds = Math.min(30, Math.max(5, s.timerSeconds || 20));
+    pvTimerSeconds = Math.min(45, Math.max(5, s.timerSeconds || 20));
 });
 
 // Sync hostSettings (ddWagerTimeout + ticker)
@@ -379,7 +379,7 @@ db.ref('activeClue').on('value', snap => {
         if (clue.tileId !== pvActiveTileId) {
             pvActiveTileId = clue.tileId;
             pvTimerEnabled = !!clue.timerEnabled;
-            pvTimerSeconds = Math.min(30, Math.max(5, clue.timerSeconds || 20));
+            pvTimerSeconds = Math.min(45, Math.max(5, clue.timerSeconds || 20));
             const elapsed = clue.clueStartedAt ? (Date.now() - clue.clueStartedAt) / 1000 : 0;
             requestAnimationFrame(() => startPreviewTimer(elapsed));
         }
