@@ -2552,8 +2552,22 @@ let pendingUploadTiles = null;
 let pendingUploadCategories = null;
 
 function sanitizeAIJson(raw) {
-    // Strip markdown code fences the AI sometimes wraps output in
-    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/,'').trim();
+    // Extract the first complete JSON object, ignoring surrounding noise
+    // (e.g. AI outputting Python code, repeated copies, markdown fences, etc.)
+    const start = raw.indexOf('{');
+    if (start !== -1) {
+        let depth = 0, inStr = false, escape = false;
+        for (let i = start; i < raw.length; i++) {
+            const ch = raw[i];
+            if (escape)              { escape = false; continue; }
+            if (ch === '\\' && inStr){ escape = true;  continue; }
+            if (ch === '"')          { inStr = !inStr;  continue; }
+            if (!inStr) {
+                if      (ch === '{') depth++;
+                else if (ch === '}') { depth--; if (depth === 0) { raw = raw.slice(start, i + 1); break; } }
+            }
+        }
+    }
     // Remove trailing commas before } or ] (common AI mistake)
     raw = raw.replace(/,(\s*[}\]])/g, '$1');
     return raw;
